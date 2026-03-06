@@ -16,17 +16,25 @@ tab1, tab2, tab3, tab4 = st.tabs([
 ])
 
 # --- TAB 1: QUẢN LÝ THIẾT BỊ ---
+# --- TAB 1: QUẢN LÝ THIẾT BỊ ---
 with tab1:
     st.header("Danh sách thiết bị theo địa điểm")
     locations = ["Nhà máy Long An", "Chi nhánh Thành phố", "Đà Nẵng", "Miền Bắc", "Polypack"]
     loc_filter = st.selectbox("Chọn địa điểm", locations)
     
-    # Query mẫu (giả sử bảng assets đã có dữ liệu)
-    res = supabase.table("assets").select("*, staff(full_name)").eq("location", loc_filter).execute()
-    if res.data:
-        st.table(res.data)
-    else:
-        st.info("Chưa có thiết bị nào tại địa điểm này.")
+    # Sửa query: Đảm bảo tên bảng và cột đúng như SQL
+    try:
+        # Nếu bạn chưa muốn JOIN phức tạp, hãy lấy đơn giản trước để test:
+        res = supabase.table("assets").select("*").eq("location", loc_filter).execute()
+        
+        if res.data:
+            df = pd.DataFrame(res.data)
+            st.dataframe(df, use_container_width=True)
+        else:
+            st.info(f"Chưa có thiết bị nào tại {loc_filter}")
+            
+    except Exception as e:
+        st.error(f"Lỗi truy vấn: {e}")
 
 # --- TAB 3: BẢN QUYỀN & NHẮC HẸN ---
 with tab3:
