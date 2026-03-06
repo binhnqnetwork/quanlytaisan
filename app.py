@@ -17,21 +17,37 @@ tab1, tab2, tab3, tab4 = st.tabs([
 
 # --- TAB 1: QUẢN LÝ THIẾT BỊ ---
 # --- TAB 1: QUẢN LÝ THIẾT BỊ ---
+# --- TAB 1: QUẢN LÝ THIẾT BỊ ---
 with tab1:
-    st.header("Danh sách thiết bị theo địa điểm")
-    locations = ["Nhà máy Long An", "Chi nhánh Thành phố", "Đà Nẵng", "Miền Bắc", "Polypack"]
-    loc_filter = st.selectbox("Chọn địa điểm", locations)
+    st.header("💻 Danh sách thiết bị")
     
-    # Sửa query: Đảm bảo tên bảng và cột đúng như SQL
+    # 1. Định nghĩa danh sách địa điểm khớp với ID trong Database của bạn
+    # Giả sử: 1: Long An, 2: TP.HCM, 3: Đà Nẵng...
+    location_map = {
+        "Nhà máy Long An": 1,
+        "Chi nhánh Thành phố": 2,
+        "Đà Nẵng": 3,
+        "Miền Bắc": 4,
+        "Polypack": 5
+    }
+    
+    loc_display = st.selectbox("Chọn địa điểm", list(location_map.keys()))
+    selected_id = location_map[loc_display]
+    
     try:
-        # Nếu bạn chưa muốn JOIN phức tạp, hãy lấy đơn giản trước để test:
-        res = supabase.table("assets").select("*").eq("location", loc_filter).execute()
+        # 2. Query chuẩn: Lấy tất cả cột của assets + lấy full_name từ bảng staff (nếu có FK)
+        # Lọc theo cột location_id (đã sửa tên cột theo lỗi bạn gặp)
+        res = supabase.table("assets")\
+            .select("asset_tag, type, specs, status, location_id")\
+            .eq("location_id", selected_id)\
+            .execute()
         
         if res.data:
             df = pd.DataFrame(res.data)
+            # Làm đẹp hiển thị JSON specs nếu cần
             st.dataframe(df, use_container_width=True)
         else:
-            st.info(f"Chưa có thiết bị nào tại {loc_filter}")
+            st.info(f"Chưa có thiết bị nào tại {loc_display} (ID: {selected_id})")
             
     except Exception as e:
         st.error(f"Lỗi truy vấn: {e}")
