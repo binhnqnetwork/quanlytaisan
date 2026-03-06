@@ -3,3 +3,4 @@ supabase
 pandas
 cryptography
 python-dotenv
+plotly.express
