@@ -73,69 +73,99 @@ with tabs[0]:
 
 # --- TAB 1: NHÂN VIÊN & CẤP PHÁT ---
 with tabs[1]:
-    st.title("👤 Nhân sự & Tài sản")
+    st.title("👤 Nhân sự & Thiết bị")
     
-    # Định nghĩa map địa điểm ngay tại đây để tránh NameError
+    # Map địa điểm dựa trên bảng 'locations' trong hình của bạn
+    # Lưu ý: Trong hình, staff và assets đều nối tới locations.id
     loc_map = {"Nhà máy Long An": 1, "TP.HCM": 2, "Đà Nẵng": 3, "Miền Bắc": 4, "Polypack": 5}
     branch_list = list(loc_map.keys())
 
-    # --- BƯỚC 1: TRA CỨU ---
+    # --- BƯỚC 1: TRA CỨU NHÂN VIÊN ---
     e_code = st.text_input("Mã nhân viên", placeholder="VD: NV001").strip().upper()
     
-    st_data = {"full_name": "", "department": "", "branch": "Nhà máy Long An", "is_active": True}
+    st_data = {"full_name": "", "department": "", "branch": "Nhà máy Long An", "is_active": True, "location_id": 1}
     exists = False
 
     if e_code:
-        try:
-            res = supabase.table("staff").select("*").eq("employee_code", e_code).execute()
-            if res.data:
-                st_data = res.data[0]
-                exists = True
-                if not st_data.get('is_active', True):
-                    st.warning(f"Nhân viên {st_data['full_name']} đã nghỉ việc.")
-                else:
-                    st.success(f"Hồ sơ: {st_data['full_name']}")
-        except Exception as e:
-            st.error(f"Lỗi truy vấn: {e}")
+        res = supabase.table("staff").select("*").eq("employee_code", e_code).execute()
+        if res.data:
+            st_data = res.data[0]
+            exists = True
+            st.success(f"Hồ sơ: {st_data['full_name']}")
 
-    # --- FORM QUẢN LÝ ---
-    with st.expander("📝 Chỉnh sửa thông tin nhân sự", expanded=not exists):
-        with st.form("staff_form_apple_v6"):
+    # --- FORM NHÂN VIÊN (Dùng UPSERT để tránh lỗi 23505) ---
+    with st.expander("📝 Quản lý hồ sơ nhân sự", expanded=not exists):
+        with st.form("staff_form_v7"):
             c1, c2, c3 = st.columns(3)
             f_name = c1.text_input("Họ và Tên", value=st_data.get("full_name", ""))
             f_dept = c2.text_input("Phòng ban", value=st_data.get("department", ""))
             
-            db_branch = st_data.get("branch", "Nhà máy Long An")
-            d_idx = branch_list.index(db_branch) if db_branch in branch_list else 0
+            curr_branch = st_data.get("branch", "Nhà máy Long An")
+            d_idx = branch_list.index(curr_branch) if curr_branch in branch_list else 0
             f_branch = c3.selectbox("Chi nhánh", branch_list, index=d_idx)
             
-            col_b1, col_b2 = st.columns([1, 1])
-            save_btn = col_b1.form_submit_button("💾 Lưu / Cập nhật")
-            off_btn = col_b2.form_submit_button("🗑️ Nghỉ việc")
+            save_btn = st.form_submit_button("💾 Xác nhận Nhân viên (Lưu/Cập nhật)")
 
             if save_btn:
                 if e_code and f_name:
-                    try:
-                        # Gửi đúng các cột đã tạo trong SQL ở Bước 1
-                        supabase.table("staff").upsert({
-                            "employee_code": e_code, 
-                            "full_name": f_name, 
-                            "department": f_dept, 
-                            "branch": f_branch, 
-                            "is_active": True
-                        }).execute()
-                        st.success("Đã lưu thành công!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Lỗi lưu dữ liệu: {e}") # Sẽ hiện lỗi thực tế nếu thiếu cột
+                    # UPSERT: Nếu trùng employee_code sẽ tự động UPDATE
+                    supabase.table("staff").upsert({
+                        "employee_code": e_code, 
+                        "full_name": f_name, 
+                        "department": f_dept, 
+                        "branch": f_branch,
+                        "location_id": loc_map.get(f_branch),
+                        "is_active": True
+                    }, on_conflict="employee_code").execute()
+                    st.success("Dữ liệu nhân sự đã đồng bộ!")
+                    st.rerun()
 
-            if exists and off_btn:
+    # --- BƯỚC 2: BỔ SUNG CHỨC NĂNG THÊM THIẾT BỊ ---
+    if e_code and exists:
+        st.markdown("---")
+        st.subheader(f"📦 Cấp thiết bị cho {st_data['full_name']}")
+        
+        with st.form("asset_add_v7"):
+            a1, a2, a3 = st.columns(3)
+            a_type = a1.selectbox("Loại thiết bị", ["PC", "LT", "MN", "PR"])
+            a_num = a2.text_input("Số thứ tự (4 số)", placeholder="0001")
+            a_date = a3.date_input("Ngày bàn giao")
+            
+            a_specs = st.text_input("Cấu hình (CPU, RAM...)")
+            a_softs = st.text_area("Phần mềm cài sẵn (cách nhau bằng dấu phẩy)")
+            
+            # Cột mới trong DB theo hình: maintenance_history, software_list
+            if st.form_submit_button("🚀 Hoàn tất bàn giao"):
+                a_tag = f"{a_type}{a_num}"
+                s_list = [s.strip() for s in a_softs.split(",") if s.strip()]
+                
+                asset_payload = {
+                    "asset_tag": a_tag,
+                    "type": a_type,
+                    "assigned_to_code": e_code,
+                    "location_id": st_data.get("location_id"),
+                    "purchase_date": str(a_date),
+                    "specs": {"detail": a_specs},
+                    "software_list": s_list,
+                    "status": "Đang sử dụng",
+                    "recommendations": "💡 Bảo trì 6 tháng/lần" if a_type in ["PC", "LT"] else "Theo dõi định kỳ"
+                }
+                
                 try:
-                    supabase.table("staff").update({"is_active": False}).eq("employee_code", e_code).execute()
-                    st.warning("Đã cập nhật trạng thái nghỉ việc.")
+                    # UPSERT cho assets: Trùng asset_tag sẽ tự động UPDATE
+                    supabase.table("assets").upsert(asset_payload, on_conflict="asset_tag").execute()
+                    st.success(f"Đã cập nhật thiết bị {a_tag} cho {e_code}")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Lỗi cập nhật: {e}")
+                    st.error(f"Lỗi thêm thiết bị: {e}")
+
+    # --- BƯỚC 3: DANH SÁCH THIẾT BỊ ĐANG DÙNG ---
+    if exists:
+        st.markdown(f"#### 🖥️ Danh sách tài sản của {e_code}")
+        assets_res = supabase.table("assets").select("*").eq("assigned_to_code", e_code).execute()
+        if assets_res.data:
+            df_assets = pd.DataFrame(assets_res.data)
+            st.dataframe(df_assets[['asset_tag', 'type', 'purchase_date', 'status']], use_container_width=True)
 # --- TAB 2: MÁY CHỦ (SERVER) ---
 with tabs[2]:
     st.title("🖥️ Hệ thống Máy chủ")
