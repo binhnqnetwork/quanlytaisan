@@ -52,72 +52,68 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("👥 Quản lý Nhân viên & Thiết bị")
     
-    # Map tên chi nhánh với ID trong Database
-    location_map = {
-        "Nhà máy Long An": 1,
-        "Chi nhánh TP.HCM": 2,
-        "Đà Nẵng": 3,
-        "Miền Bắc": 4,
-        "Polypack": 5
-    }
+    location_map = {"Nhà máy Long An": 1, "Chi nhánh TP.HCM": 2, "Đà Nẵng": 3, "Miền Bắc": 4, "Polypack": 5}
 
     # --- BƯỚC 1: THÔNG TIN NHÂN VIÊN ---
-    with st.expander("👤 Bước 1: Xác nhận Nhân viên", expanded=True):
+    st.markdown("### 👤 Bước 1: Nhận diện Nhân viên")
+    emp_code_input = st.text_input("Nhập Mã nhân viên", placeholder="VD: NV001")
+    
+    # Biến trung gian để lưu dữ liệu nhân viên
+    current_staff = {"full_name": "", "department": "", "branch": "Nhà máy Long An"}
+    
+    if emp_code_input:
+        # Kiểm tra xem nhân viên đã tồn tại chưa
+        staff_res = supabase.table("staff").select("*").eq("employee_code", emp_code_input).execute()
+        if staff_res.data:
+            current_staff = staff_res.data[0]
+            st.success(f"🔍 Tìm thấy thông tin: {current_staff['full_name']}")
+        else:
+            st.info("🆕 Mã nhân viên mới, vui lòng điền thông tin bên dưới.")
+
+    with st.form("staff_form"):
         c1, c2, c3 = st.columns(3)
-        emp_code = c1.text_input("Mã NV", placeholder="NV001")
-        emp_name = c2.text_input("Họ tên")
-        branch = c3.selectbox("Chi nhánh", list(location_map.keys()))
+        emp_name = c1.text_input("Họ tên", value=current_staff["full_name"])
+        dept = c2.text_input("Bộ phận", value=current_staff.get("department", ""))
+        branch = c3.selectbox("Chi nhánh", list(location_map.keys()), 
+                             index=list(location_map.keys()).index(current_staff.get("branch", "Nhà máy Long An")))
         
-        if st.button("Lưu/Cập nhật Nhân viên"):
-            try:
-                supabase.table("staff").upsert({
-                    "employee_code": emp_code, 
-                    "full_name": emp_name,
-                    "branch": branch
-                }).execute()
-                st.success(f"✅ Đã lưu nhân viên: {emp_name}")
-            except Exception as e:
-                st.error(f"Lỗi: {e}")
+        if st.form_submit_button("Xác nhận thông tin"):
+            supabase.table("staff").upsert({
+                "employee_code": emp_code_input, "full_name": emp_name, 
+                "department": dept, "branch": branch
+            }).execute()
+            st.toast("Đã lưu thông tin nhân viên!")
 
     # --- BƯỚC 2: THÊM THIẾT BỊ ---
-    if emp_code:
+    if emp_code_input and emp_name:
         st.divider()
-        st.subheader(f"📦 Cấp tài sản cho [{emp_code}]")
-        with st.form("add_asset_form_final"):
+        st.subheader(f"📦 Cấp tài sản cho [{emp_code_input}]")
+        with st.form("add_asset_form_v3"):
             col_a, col_b, col_c = st.columns(3)
-            a_type = col_a.selectbox("Loại", ["PC", "LT", "MN", "PR"])
-            a_num = col_b.text_input("Số thứ tự", value="0001")
+            # Dùng đúng các mã đã fix trong SQL Constraint
+            a_type = col_a.selectbox("Loại", ["PC", "LT", "MN", "PR"]) 
+            a_num = col_b.text_input("Số thứ tự (VD: 0001)")
             p_date = col_c.date_input("Ngày cấp phát")
             
-            a_tag = f"{a_type}{a_num}" # Tạo mã chuẩn PC0001
+            a_tag = f"{a_type}{a_num}"
             specs = st.text_input("Cấu hình (CPU, RAM, SSD...)")
-            softs = st.text_area("Phần mềm cài đặt (cách nhau bằng dấu phẩy)")
+            softs = st.text_area("Phần mềm cài đặt")
             
             if st.form_submit_button("💾 Lưu thiết bị"):
-                # Tự động lấy ID tương ứng với chi nhánh
-                target_loc_id = location_map[branch]
-                
-                # Logic khuyến nghị
-                rec = "💡 Cần vệ sinh sau 6 tháng" if a_type in ["PC", "LT"] else "Theo dõi định kỳ"
-                
-                asset_payload = {
-                    "asset_tag": a_tag,
-                    "type": a_type,
-                    "assigned_to_code": emp_code,
-                    "location_id": target_loc_id, # Đảm bảo ID này đã tồn tại ở bước 1
-                    "specs": {"detail": specs},
-                    "software_list": [s.strip() for s in softs.split(",") if s.strip()],
-                    "recommendations": rec,
-                    "purchase_date": str(p_date)
-                }
-                
                 try:
+                    asset_payload = {
+                        "asset_tag": a_tag, "type": a_type, "assigned_to_code": emp_code_input,
+                        "location_id": location_map[branch],
+                        "specs": {"detail": specs},
+                        "software_list": [s.strip() for s in softs.split(",") if s.strip()],
+                        "recommendations": "💡 Khuyến nghị: Bảo trì sau 6 tháng" if a_type in ["PC", "LT"] else "Theo dõi định kỳ",
+                        "purchase_date": str(p_date)
+                    }
                     supabase.table("assets").insert(asset_payload).execute()
                     st.success(f"🎉 Đã thêm thành công {a_tag}!")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Lỗi: {e}")
-                    st.info("Hãy đảm bảo bạn đã chạy lệnh SQL INSERT vào bảng locations trước!")
 
 # --- TAB 2: MÁY CHỦ (Quản lý cấu hình JSON) ---
 with tabs[2]:
