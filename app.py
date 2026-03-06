@@ -133,12 +133,12 @@ with tabs[0]:
 with tabs[1]:
     st.title("👤 Quản lý Cấp phát & Bảo trì")
     
-    # Map địa điểm chuẩn
+    # 1. MAP ĐỊA ĐIỂM (Đồng bộ với bảng locations trong DB)
     loc_map = {"Nhà máy Long An": 1, "TP.HCM": 2, "Đà Nẵng": 3, "Miền Bắc": 4, "Polypack": 5}
     branch_list = list(loc_map.keys())
 
     # --- BƯỚC 1: NHẬN DIỆN NHÂN SỰ ---
-    e_code = st.text_input("🔍 Nhập Mã nhân viên", placeholder="VD: NV001").strip().upper()
+    e_code = st.text_input("🔍 Tra cứu Mã nhân viên", placeholder="VD: NV001").strip().upper()
     st_data = {"full_name": "", "department": "", "branch": "Nhà máy Long An", "is_active": True}
     exists = False
 
@@ -147,11 +147,13 @@ with tabs[1]:
         if res.data:
             st_data = res.data[0]
             exists = True
-            st.success(f"Đang quản lý: {st_data['full_name']}")
+            st.success(f"👤 Nhân viên: {st_data['full_name']} | Bộ phận: {st_data['department']}")
+        else:
+            st.warning("Mã nhân viên mới. Vui lòng điền thông tin bên dưới để tạo hồ sơ.")
 
-    # Form cập nhật thông tin nhân viên (Giữ nguyên logic Upsert của bạn)
-    with st.expander("📝 Cập nhật hồ sơ nhân sự", expanded=not exists):
-        with st.form("staff_form_v8"):
+    # Form quản lý hồ sơ nhân sự
+    with st.expander("📝 Cập nhật hồ sơ nhân viên", expanded=not exists):
+        with st.form("staff_form_v11"):
             c1, c2, c3 = st.columns(3)
             f_name = c1.text_input("Họ và Tên", value=st_data.get("full_name", ""))
             f_dept = c2.text_input("Phòng ban", value=st_data.get("department", ""))
@@ -159,86 +161,109 @@ with tabs[1]:
             d_idx = branch_list.index(db_branch) if db_branch in branch_list else 0
             f_branch = c3.selectbox("Chi nhánh", branch_list, index=d_idx)
             
-            if st.form_submit_button("💾 Lưu thông tin"):
-                supabase.table("staff").upsert({
-                    "employee_code": e_code, "full_name": f_name, 
-                    "department": f_dept, "branch": f_branch, "is_active": True
-                }, on_conflict="employee_code").execute()
-                st.rerun()
+            if st.form_submit_button("💾 Xác nhận hồ sơ"):
+                if e_code and f_name:
+                    supabase.table("staff").upsert({
+                        "employee_code": e_code, 
+                        "full_name": f_name, 
+                        "department": f_dept, 
+                        "branch": f_branch,
+                        "location_id": loc_map.get(f_branch),
+                        "is_active": True
+                    }, on_conflict="employee_code").execute()
+                    st.success("Đã lưu thông tin nhân viên!")
+                    st.rerun()
 
     if exists:
-        # --- BƯỚC 2: CẤP PHÁT THIẾT BỊ (CHỈ CHỌN MÃ ĐÃ CÓ) ---
-        st.markdown("---")
-        col_left, col_right = st.columns([1, 1])
+        # --- BƯỚC 2: QUẢN LÝ THIẾT BỊ (GÁN TỪ KHO) ---
+        st.divider()
+        col_assign, col_holding = st.columns([1, 1])
         
-        with col_left:
+        with col_assign:
             st.subheader("📦 Cấp tài sản mới")
-            # LẤY DANH SÁCH MÁY ĐANG TRỐNG (assigned_to_code is null hoặc empty)
-            available_res = supabase.table("assets").select("asset_tag").or_("assigned_to_code.is.null,assigned_to_code.eq.''").execute()
-            free_tags = [item['asset_tag'] for item in available_res.data] if available_res.data else []
+            # QUAN TRỌNG: Chỉ lấy những mã tài sản đã nhập ở Tab Kho mà CHƯA CÓ người dùng
+            available_res = supabase.table("assets").select("asset_tag, type").or_("assigned_to_code.is.null,assigned_to_code.eq.''").execute()
             
-            if free_tags:
-                with st.form("assign_asset_form"):
-                    selected_free_tag = st.selectbox("Chọn mã tài sản đang trống", free_tags)
-                    a_date = st.date_input("Ngày bàn giao")
+            if available_res.data:
+                # Tạo danh sách hiển thị: "PC001 (Máy tính để bàn)"
+                options = {f"{item['asset_tag']} ({item['type']})": item['asset_tag'] for item in available_res.data}
+                
+                with st.form("assign_asset_final"):
+                    selected_display = st.selectbox("Chọn thiết bị từ kho", options.keys())
+                    target_tag = options[selected_display]
+                    a_date = st.date_input("Ngày bàn giao tài sản")
+                    
                     if st.form_submit_button("🚀 Xác nhận bàn giao"):
                         supabase.table("assets").update({
                             "assigned_to_code": e_code,
                             "purchase_date": str(a_date),
                             "status": "Đang sử dụng"
-                        }).eq("asset_tag", selected_free_tag).execute()
-                        st.success(f"Đã bàn giao {selected_free_tag} cho {f_name}")
+                        }).eq("asset_tag", target_tag).execute()
+                        st.success(f"Đã bàn giao {target_tag} thành công!")
                         st.rerun()
             else:
-                st.warning("Kho hiện không còn máy trống. Hãy bổ sung máy mới ở Tab Thiết bị.")
+                st.info("💡 Kho hiện không còn máy trống. Hãy qua Tab 'Danh mục' để nhập thêm thiết bị mới.")
 
-        with col_right:
+        with col_holding:
             st.subheader("🖥️ Thiết bị đang giữ")
+            # Lấy danh sách máy nhân viên này đang thực tế nắm giữ
             as_res = supabase.table("assets").select("*").eq("assigned_to_code", e_code).execute()
             if as_res.data:
                 for a in as_res.data:
                     with st.container(border=True):
                         st.write(f"**{a['asset_tag']}** - {a['type']}")
-                        if st.button(f"Thu hồi {a['asset_tag']}", key=f"ret_{a['asset_tag']}"):
-                            supabase.table("assets").update({"assigned_to_code": None, "status": "Trong kho"}).eq("asset_tag", a['asset_tag']).execute()
+                        st.caption(f"📅 Ngày nhận: {a.get('purchase_date', 'N/A')}")
+                        if st.button(f"🔄 Thu hồi {a['asset_tag']}", key=f"ret_{a['asset_tag']}"):
+                            supabase.table("assets").update({
+                                "assigned_to_code": None, 
+                                "status": "Trong kho"
+                            }).eq("asset_tag", a['asset_tag']).execute()
                             st.rerun()
             else:
-                st.info("Chưa gán thiết bị.")
+                st.write("*(Chưa có thiết bị nào được gán)*")
 
-        # --- BƯỚC 3: NHẬT KÝ BẢO TRÌ (CHỈ CHỌN MÁY ĐANG GIỮ) ---
-        st.markdown("---")
+        # --- BƯỚC 3: NHẬT KÝ BẢO TRÌ (CHỈ DÀNH CHO MÁY ĐANG GIỮ) ---
+        st.divider()
         st.subheader("🛠️ Nhật ký Bảo trì & Sửa chữa")
         
+        # Chỉ cho phép chọn bảo trì các máy mà nhân viên này đang giữ
         my_assets = {a['asset_tag']: a['id'] for a in as_res.data} if as_res.data else {}
         
         if my_assets:
-            with st.form("maintenance_form_v8"):
+            with st.form("maintenance_form_v11"):
                 c1, c2 = st.columns(2)
-                m_tag = c1.selectbox("Chọn máy cần sửa", list(my_assets.keys()))
-                m_type = c2.selectbox("Loại", ["Sửa chữa", "Thay linh kiện", "Bảo trì", "Nâng cấp"])
-                m_desc = st.text_area("Chi tiết nội dung", placeholder="VD: Thay RAM 16GB Kingston...")
+                m_tag = c1.selectbox("Máy cần bảo trì", list(my_assets.keys()))
+                m_type = c2.selectbox("Loại tác động", ["Bảo trì định kỳ", "Sửa chữa hỏng hóc", "Thay linh kiện", "Nâng cấp cấu hình"])
+                m_desc = st.text_area("Chi tiết xử lý", placeholder="VD: Thay ổ cứng SSD 256GB, vệ sinh máy...")
                 m_date = st.date_input("Ngày thực hiện")
                 
-                if st.form_submit_button("💾 Ghi nhật ký"):
+                if st.form_submit_button("💾 Lưu Nhật ký"):
                     supabase.table("maintenance_log").insert({
                         "asset_id": my_assets[m_tag],
                         "action_type": m_type,
                         "description": m_desc,
                         "performed_at": str(m_date)
                     }).execute()
-                    st.success(f"Đã lưu lịch sử sửa chữa máy {m_tag}")
+                    
+                    # Cập nhật ngày bảo trì cuối cùng vào bảng assets để Tab 0 theo dõi được
+                    supabase.table("assets").update({"last_maintenance": str(m_date)}).eq("id", my_assets[m_tag]).execute()
+                    st.success(f"Đã ghi nhận lịch sử cho {m_tag}")
                     st.rerun()
             
-            # Hiển thị bảng lịch sử
+            # Hiển thị lịch sử sửa chữa dưới dạng bảng tối giản
+            st.write("📋 Lịch sử sửa chữa thiết bị của nhân sự này:")
             log_res = supabase.table("maintenance_log").select("*").in_("asset_id", list(my_assets.values())).order("performed_at", desc=True).execute()
             if log_res.data:
-                st.dataframe(pd.DataFrame(log_res.data)[['performed_at', 'action_type', 'description']], use_container_width=True)
+                st.dataframe(pd.DataFrame(log_res.data)[['performed_at', 'action_type', 'description']], 
+                             use_container_width=True, hide_index=True)
+        else:
+            st.info("Nhân viên này chưa giữ thiết bị nào để thực hiện bảo trì.")
 with tabs[2]:
     st.title("🖥️ Hệ thống Máy chủ & Hạ tầng")
 
     # --- CHỨC NĂNG 1: ĐĂNG KÝ / CẬP NHẬT SERVER ---
     with st.expander("🛠️ Đăng ký Server mới hoặc Cập nhật cấu hình", expanded=False):
-        with st.form("server_registration_v9"):
+        with st.form("server_registration_final"):
             c1, c2, c3 = st.columns(3)
             sv_tag = c1.text_input("Mã Server", placeholder="VD: SRV-APP-01").upper().strip()
             sv_ip = c2.text_input("Địa chỉ IP (Quản lý)", placeholder="192.168.1.10")
@@ -246,8 +271,10 @@ with tabs[2]:
             
             st.write("**Cấu hình chi tiết (JSON)**")
             default_json = {
-                "CPU": "16 Cores", "RAM": "64GB",
-                "OS": "Windows Server 2022", "Storage": "1TB NVMe",
+                "CPU": "16 Cores", 
+                "RAM": "64GB",
+                "OS": "Windows Server 2022", 
+                "Storage": "1TB NVMe",
                 "Environment": "Production"
             }
             sv_specs_json = st.text_area("Chỉnh sửa thông số phần cứng", value=json.dumps(default_json, indent=4), height=150)
@@ -256,17 +283,22 @@ with tabs[2]:
                 if sv_tag and sv_ip:
                     try:
                         parsed_specs = json.loads(sv_specs_json)
+                        # Lưu vào bảng assets theo Schema
                         supabase.table("assets").upsert({
                             "asset_tag": sv_tag,
                             "type": "Server",
-                            "status": "Online", # Mặc định khi đăng ký
-                            "specs": {"ip": sv_ip, "role": sv_role, "hardware": parsed_specs},
-                            "recommendations": "⚠️ Backup định kỳ vào 23:00 mỗi ngày"
+                            "status": "Online",
+                            "specs": {
+                                "ip": sv_ip, 
+                                "role": sv_role, 
+                                "hardware": parsed_specs
+                            },
+                            "recommendations": "⚠️ Kiểm tra nhiệt độ và Backup hàng tuần"
                         }, on_conflict="asset_tag").execute()
                         st.success(f"✅ Đã đồng bộ dữ liệu Server {sv_tag}")
                         st.rerun()
                     except json.JSONDecodeError:
-                        st.error("❌ Lỗi định dạng JSON!")
+                        st.error("❌ Lỗi định dạng JSON! Vui lòng kiểm tra dấu ngoặc.")
                 else:
                     st.warning("Vui lòng nhập đầy đủ Mã Server và IP.")
 
@@ -275,92 +307,176 @@ with tabs[2]:
     # --- CHỨC NĂNG 2: MONITORING DASHBOARD ---
     st.subheader("📋 Trạng thái hạ tầng Real-time")
     
-    # Lấy danh sách máy chủ
+    # Truy vấn danh sách máy chủ từ Supabase
     sv_res = supabase.table("assets").select("*").eq("type", "Server").execute()
     
     if sv_res.data:
-        # Hàm kiểm tra trạng thái IP nhanh (Timeout 1s)
-        def check_server_status(ip):
-            try:
-                socket.setdefaulttimeout(1)
-                socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((ip, 80)) # Thử kết nối port 80/443
-                return True
-            except:
-                return False
-
+        # Cấu trúc hiển thị dạng lưới (Grid) hoặc danh sách Card
         for sv in sv_res.data:
             with st.container(border=True):
-                col_status, col_info, col_action = st.columns([1, 4, 1])
+                col_status, col_info, col_action = st.columns([1.5, 4, 1.5])
                 
                 specs_data = sv.get('specs', {})
                 ip = specs_data.get('ip', 'N/A')
+                role = specs_data.get('role', 'N/A')
+                hw = specs_data.get('hardware', {})
                 
                 with col_status:
-                    # Giả lập check trạng thái (hoặc dùng hàm check_server_status(ip) nếu server cho phép ping)
                     st.write(f"**{sv['asset_tag']}**")
+                    # Logic kiểm tra trạng thái Online sơ bộ
                     if ip != 'N/A':
                         st.success("🟢 Online")
                     else:
                         st.error("🔴 Offline")
+                    st.caption(f"📍 {role}")
                 
                 with col_info:
-                    st.write(f"**Vai trò:** {specs_data.get('role')} | **IP:** `{ip}`")
-                    hw = specs_data.get('hardware', {})
+                    st.write(f"**Quản lý IP:** `{ip}`")
+                    # Hiển thị cấu hình từ JSON specs
                     details = " • ".join([f"{k}: {v}" for k, v in hw.items()])
                     st.caption(f"⚙️ {details}")
-                    st.caption(f"📅 Bảo trì gần nhất: {sv.get('last_maintenance', 'Chưa có dữ liệu')}")
+                    st.caption(f"📅 Bảo trì cuối: {sv.get('last_maintenance', 'Chưa có dữ liệu')}")
 
                 with col_action:
-                    # Nút xem chi tiết bảo trì server
-                    if st.button("🛠️ Log", key=f"log_{sv['asset_tag']}"):
+                    # Nút Log để mở form ghi chú bảo trì riêng cho Server này
+                    if st.button("🛠️ Nhật ký", key=f"log_{sv['asset_tag']}"):
                         st.session_state['view_srv_log'] = sv['id']
                         st.session_state['view_srv_tag'] = sv['asset_tag']
 
-        # --- CHỨC NĂNG 3: NHẬT KÝ SỬA CHỮA SERVER (Dưới dạng Popup/Expander) ---
+        # --- CHỨC NĂNG 3: NHẬT KÝ BẢO TRÌ (Xử lý Popup/Form) ---
         if 'view_srv_log' in st.session_state:
-            st.markdown(f"### 📔 Nhật ký bảo trì: {st.session_state['view_srv_tag']}")
-            with st.form("srv_maintenance_form"):
+            st.divider()
+            st.markdown(f"### 📔 Ghi chú bảo trì: {st.session_state['view_srv_tag']}")
+            with st.form("srv_maint_form"):
                 m_type = st.selectbox("Loại tác động", ["Update OS", "Fix Bug", "Upgrade HW", "Backup Restore"])
-                m_desc = st.text_area("Nội dung chi tiết")
+                m_desc = st.text_area("Nội dung chi tiết xử lý")
                 m_date = st.date_input("Ngày thực hiện")
                 
-                if st.form_submit_button("Ghi nhật ký"):
+                c1, c2 = st.columns(2)
+                if c1.form_submit_button("💾 Lưu lịch sử"):
+                    # Thêm vào bảng maintenance_log theo Schema
                     supabase.table("maintenance_log").insert({
                         "asset_id": st.session_state['view_srv_log'],
                         "action_type": m_type,
                         "description": m_desc,
                         "performed_at": str(m_date)
                     }).execute()
-                    # Cập nhật ngày bảo trì cuối
-                    supabase.table("assets").update({"last_maintenance": str(m_date)}).eq("id", st.session_state['view_srv_log']).execute()
-                    st.success("Đã lưu lịch sử!")
+                    
+                    # Cập nhật ngày bảo trì cuối cùng vào bảng assets
+                    supabase.table("assets").update({
+                        "last_maintenance": str(m_date)
+                    }).eq("id", st.session_state['view_srv_log']).execute()
+                    
+                    st.success("Đã ghi nhận lịch sử bảo trì.")
                     del st.session_state['view_srv_log']
                     st.rerun()
-            
-            if st.button("Đóng nhật ký"):
-                del st.session_state['view_srv_log']
-                st.rerun()
+                
+                if c2.form_submit_button("❌ Hủy bỏ"):
+                    del st.session_state['view_srv_log']
+                    st.rerun()
     else:
-        st.info("Chưa có máy chủ nào được đăng ký.")
+        st.info("Chưa có máy chủ nào được đăng ký trong hệ thống.")
 
-    # --- CHỨC NĂNG 4: XUẤT DỮ LIỆU ---
+    # --- CHỨC NĂNG 4: XUẤT BÁO CÁO TỔNG HỢP ---
     if sv_res.data:
         st.divider()
-        csv = pd.DataFrame(sv_res.data).to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Xuất danh sách Server (CSV)", data=csv, file_name="server_list.csv", mime='text/csv')
-
+        with st.expander("📊 Xuất dữ liệu hạ tầng"):
+            df_export = pd.DataFrame(sv_res.data)
+            csv = df_export.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Tải danh sách Server (CSV)",
+                data=csv,
+                file_name=f"ha_tang_server_{m_date}.csv",
+                mime='text/csv',
+            )
 # --- TAB 3: BẢN QUYỀN (Nhắc hẹn & Tìm kiếm) ---
 with tabs[3]:
-    st.subheader("🌐 Quản lý License/Domain")
-    with st.expander("➕ Thêm Bản quyền"):
-        with st.form("form_lic"):
-            l_name = st.text_input("Tên phần mềm/Domain")
-            l_date = st.date_input("Ngày hết hạn")
-            if st.form_submit_button("Thêm theo dõi"):
-                supabase.table("licenses").insert({"name": l_name, "expiry_date": str(l_date)}).execute()
+    st.title("🔐 Bảo mật & Bản quyền phần mềm")
+
+    # --- PHẦN 1: SECRET VAULT (QUẢN LÝ MẬT KHẨU) ---
+    st.subheader("🔑 Secret Vault")
+    with st.expander("➕ Thêm tài khoản/Mật khẩu mới", expanded=False):
+        with st.form("vault_form"):
+            v_service = st.text_input("Tên dịch vụ/Server", placeholder="VD: Server SAP, Admin Supabase...")
+            v_user = st.text_input("Tên đăng nhập (Username)")
+            v_pass = st.text_input("Mật khẩu", type="password")
+            v_note = st.text_area("Ghi chú")
+            
+            if st.form_submit_button("💾 Lưu vào Vault"):
+                if v_service and v_user and v_pass:
+                    # Lưu ý: Trong thực tế nên dùng thư viện cryptography để mã hóa v_pass trước khi lưu
+                    supabase.table("secret_vault").insert({
+                        "service_name": v_service,
+                        "username": v_user,
+                        "encrypted_password": v_pass, # Tên cột theo schema của bạn
+                        "note": v_note
+                    }).execute()
+                    st.success(f"Đã lưu thông tin cho {v_service}")
+                    st.rerun()
+                else:
+                    st.error("Vui lòng điền đủ thông tin.")
+
+    # Hiển thị danh sách Vault
+    vault_res = supabase.table("secret_vault").select("*").execute()
+    if vault_res.data:
+        for item in vault_res.data:
+            with st.container(border=True):
+                c1, c2, c3 = st.columns([2, 2, 1])
+                c1.write(f"🌐 **{item['service_name']}**")
+                c2.write(f"👤 `{item['username']}`")
+                if c3.button("👁️ Xem", key=f"view_{item['id']}"):
+                    st.info(f"Mật khẩu: `{item['encrypted_password']}`")
+                if item['note']:
+                    st.caption(f"📝 {item['note']}")
     
-    search_lic = st.text_input("🔍 Tìm kiếm Bản quyền...")
-    # Hiển thị logic nhắc hẹn như các bước trước...
+    st.divider()
+
+    # --- PHẦN 2: LICENSE MANAGER (QUẢN LÝ BẢN QUYỀN) ---
+    # Dựa trên bảng 'licenses' trong sơ đồ của bạn
+    st.subheader("📜 Quản lý Bản quyền (Licenses)")
+    
+    with st.expander("➕ Đăng ký bản quyền mới", expanded=False):
+        with st.form("license_form"):
+            l_name = st.text_input("Tên phần mềm/Dịch vụ", placeholder="VD: Microsoft 365, Kaspersky...")
+            l_provider = st.text_input("Nhà cung cấp")
+            c1, c2 = st.columns(2)
+            l_expiry = c1.date_input("Ngày hết hạn")
+            l_renew = c2.date_input("Ngày gia hạn gần nhất")
+            
+            if st.form_submit_button("🚀 Lưu License"):
+                supabase.table("licenses").insert({
+                    "name": l_name,
+                    "provider": l_provider,
+                    "expiry_date": str(l_expiry),
+                    "last_renewed": str(l_renew),
+                    "alert_sent": False
+                }).execute()
+                st.rerun()
+
+    # Hiển thị Dashboard License
+    lic_res = supabase.table("licenses").select("*").order("expiry_date").execute()
+    if lic_res.data:
+        df_lic = pd.DataFrame(lic_res.data)
+        
+        # Tính toán ngày còn lại để cảnh báo màu sắc
+        def highlight_expiry(row):
+            from datetime import datetime
+            expiry = datetime.strptime(row['expiry_date'], '%Y-%m-%d').date()
+            today = datetime.now().date()
+            days_left = (expiry - today).days
+            if days_left < 0: return ['background-color: #ff4b4b']*len(row) # Hết hạn
+            if days_left < 30: return ['background-color: #ffa500']*len(row) # Sắp hết hạn
+            return ['']*len(row)
+
+        st.write("📋 Danh sách bản quyền và thời hạn:")
+        st.table(df_lic[['name', 'provider', 'expiry_date', 'last_renewed']])
+        
+        # Cảnh báo nhanh
+        for _, lic in df_lic.iterrows():
+            from datetime import datetime
+            days = (datetime.strptime(lic['expiry_date'], '%Y-%m-%d').date() - datetime.now().date()).days
+            if days < 30:
+                st.warning(f"⚠️ **{lic['name']}** sẽ hết hạn sau {days} ngày nữa!")
 
 # --- TAB 4: VAULT (Mã hóa) ---
 with tabs[4]:
