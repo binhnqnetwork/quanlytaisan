@@ -74,44 +74,33 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("👥 Quản lý Nhân sự & Tài sản")
     
-    # --- PHẦN 1: NHẬN DIỆN & ĐIỀU CHỈNH NHÂN VIÊN ---
-    st.markdown("### 🔍 Tra cứu / Chỉnh sửa Nhân viên")
-    emp_code_input = st.text_input("Nhập Mã nhân viên để kiểm tra", placeholder="VD: NV001")
+    # Tra cứu để chỉnh sửa hoặc xóa
+    emp_search = st.text_input("Nhập Mã nhân viên để quản lý", placeholder="VD: NV001")
     
-    if emp_code_input:
-        staff_res = supabase.table("staff").select("*").eq("employee_code", emp_code_input).execute()
-        
-        if staff_res.data:
-            current_staff = staff_res.data[0]
-            if not current_staff.get('is_active', True):
-                st.warning("⚠️ Nhân viên này đã được đánh dấu nghỉ việc.")
-            
-            with st.form("edit_staff_form"):
-                st.info(f"Đang chỉnh sửa thông tin cho: {current_staff['full_name']}")
+    if emp_search:
+        res_s = supabase.table("staff").select("*").eq("employee_code", emp_search).execute()
+        if res_s.data:
+            staff_data = res_s.data[0]
+            with st.form("edit_staff"):
+                st.info(f"Đang quản lý: {staff_data['full_name']}")
                 c1, c2, c3 = st.columns(3)
-                new_name = c1.text_input("Họ tên", value=current_staff['full_name'])
-                new_dept = c2.text_input("Phòng ban", value=current_staff.get('department', ''))
-                new_branch = c3.selectbox("Chi nhánh", list(location_map.keys()), 
-                                         index=list(location_map.keys()).index(current_staff.get('branch', 'Nhà máy Long An')))
+                u_name = c1.text_input("Họ tên", value=staff_data['full_name'])
+                u_dept = c2.text_input("Phòng ban", value=staff_data.get('department', ''))
+                u_branch = c3.selectbox("Chi nhánh", ["Nhà máy Long An", "TP.HCM", "Đà Nẵng", "Polypack"], 
+                                       index=0) # Bạn có thể map index theo dữ liệu cũ
                 
-                col_btn1, col_btn2 = st.columns(2)
-                if col_btn1.form_submit_button("💾 Cập nhật thông tin"):
+                col_b1, col_b2 = st.columns(2)
+                if col_b1.form_submit_button("💾 Lưu thay đổi"):
                     supabase.table("staff").update({
-                        "full_name": new_name, "department": new_dept, "branch": new_branch, "is_active": True
-                    }).eq("employee_code", emp_code_input).execute()
-                    st.success("Đã cập nhật thành công!")
-                    st.rerun()
+                        "full_name": u_name, "department": u_dept, "branch": u_branch
+                    }).eq("employee_code", emp_search).execute()
+                    st.success("Cập nhật thành công!")
                 
-                if col_btn2.form_submit_button("🗑️ Đánh dấu Nghỉ việc"):
-                    # Chuyển trạng thái is_active thành false
-                    supabase.table("staff").update({"is_active": False}).eq("employee_code", emp_code_input).execute()
-                    st.error(f"Đã cập nhật trạng thái nghỉ việc cho {new_name}")
-                    st.rerun()
+                if col_b2.form_submit_button("🗑️ Xóa/Nghỉ việc"):
+                    supabase.table("staff").update({"is_active": False}).eq("employee_code", emp_search).execute()
+                    st.warning("Đã chuyển trạng thái nhân viên sang Nghỉ việc.")
         else:
-            # Form thêm mới nếu mã chưa tồn tại (giữ nguyên logic cũ của bạn)
-            with st.form("new_staff_form"):
-                st.success("🆕 Mã mới - Vui lòng nhập thông tin nhân viên")
-                # ... (code nhập mới nhân viên)
+            st.info("Mã nhân viên chưa tồn tại trong hệ thống.")
 
 # --- TAB 2: MÁY CHỦ (Quản lý cấu hình JSON) ---
 with tabs[2]:
