@@ -2,6 +2,7 @@ import streamlit as st
 from supabase import create_client
 import pandas as pd
 from datetime import datetime, timedelta
+from utils import encrypt_pw, decrypt_pw
 
 # Kết nối Supabase
 supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -99,15 +100,29 @@ with tab3:
 
 # --- TAB 4: BÍ MẬT (VAULT) ---
 with tab4:
-    st.header("Kho mật khẩu nội bộ")
-    with st.expander("➕ Thêm mật khẩu mới"):
-        site = st.text_input("Trang web/Dịch vụ")
-        u_name = st.text_input("Username")
-        p_word = st.text_input("Password", type="password")
-        if st.button("Lưu bảo mật"):
-            from utils import encrypt_password
-            enc_p = encrypt_password(p_word)
-            supabase.table("secret_vault").insert({
-                "service_name": site, "username": u_name, "encrypted_password": enc_p
-            }).execute()
-            st.success("Đã mã hóa và lưu trữ!")
+    st.header("🔐 Kho mật khẩu bí mật")
+    
+    # Form thêm mới
+    with st.form("add_secret"):
+        site = st.text_input("Dịch vụ (Ví dụ: Gmail Admin)")
+        user = st.text_input("Tên đăng nhập")
+        pwd = st.text_input("Mật khẩu", type="password")
+        if st.form_submit_button("Lưu mã hóa"):
+            secret_data = {
+                "service_name": site,
+                "username": user,
+                "encrypted_password": encrypt_pw(pwd)
+            }
+            supabase.table("secret_vault").insert(secret_data).execute()
+            st.success("Đã lưu mật khẩu an toàn!")
+
+    # Hiển thị danh sách
+    st.divider()
+    secrets_res = supabase.table("secret_vault").select("*").execute()
+    if secrets_res.data:
+        for s in secrets_res.data:
+            col1, col2, col3 = st.columns([3, 3, 2])
+            col1.write(f"**{s['service_name']}**")
+            col2.write(f"`{s['username']}`")
+            if col3.button("Xem Pass", key=f"view_{s['id']}"):
+                st.code(decrypt_pw(s['encrypted_password']))
