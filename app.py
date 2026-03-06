@@ -53,53 +53,74 @@ with tabs[1]:
     st.subheader("👥 Quản lý Nhân viên & Thiết bị")
     
     # --- PHẦN 1: CHỌN/TẠO NHÂN VIÊN ---
-    with st.expander("👤 Bước 1: Chọn hoặc Tạo mới Nhân viên", expanded=True):
-        c1, c2, c3 = st.columns(3)
-        emp_code = c1.text_input("Mã nhân viên (Key)")
+    with st.expander("👤 Bước 1: Thông tin Nhân viên", expanded=True):
+        c1, c2, c3, c4 = st.columns(4)
+        emp_code = c1.text_input("Mã NV (Khóa chính)", placeholder="VD: NV001")
         emp_name = c2.text_input("Họ tên")
-        branch = c3.selectbox("Chi nhánh", ["Nhà máy Long An", "TP.HCM", "Đà Nẵng", "Miền Bắc", "Polypack"])
+        dept = c3.text_input("Bộ phận")
+        branch = c4.selectbox("Chi nhánh", ["Nhà máy Long An", "TP.HCM", "Đà Nẵng", "Miền Bắc", "Polypack"])
         
-        if st.button("Xác nhận thông tin nhân viên"):
-            supabase.table("staff").upsert({
-                "employee_code": emp_code, 
-                "full_name": emp_name, 
-                "branch": branch
-            }).execute()
-            st.success(f"Đã chọn nhân viên: {emp_code}")
+        if st.button("Xác nhận / Cập nhật Nhân viên"):
+            if emp_code and emp_name:
+                supabase.table("staff").upsert({
+                    "employee_code": emp_code, 
+                    "full_name": emp_name, 
+                    "department": dept,
+                    "branch": branch
+                }).execute()
+                st.success(f"Đã lưu thông tin nhân viên: {emp_name}")
+            else:
+                st.warning("Vui lòng nhập Mã và Tên nhân viên.")
 
-    # --- PHẦN 2: THÊM THIẾT BỊ CHO NHÂN VIÊN ĐÃ CHỌN ---
+    # --- PHẦN 2: THÊM THIẾT BỊ CHO NHÂN VIÊN ---
     if emp_code:
         st.divider()
         st.subheader(f"📦 Thêm thiết bị cho [{emp_code}]")
         with st.form("add_asset_form"):
-            col_a, col_b = st.columns(2)
-            # Áp dụng quy định mã tài sản như đã tư vấn
+            col_a, col_b, col_c = st.columns(3)
             a_type = col_a.selectbox("Loại thiết bị", ["PC", "LT", "MN", "PR"])
-            a_id = col_b.text_input("Số thứ tự (VD: 0001)")
+            a_id = col_b.text_input("Số thứ tự (VD: 0001)", value="0001")
+            p_date = col_c.date_input("Ngày mua/cấp phát")
+            
             full_asset_tag = f"{a_type}{a_id}"
+            specs = st.text_input("Cấu hình chi tiết (CPU, RAM, Monitor size...)")
+            softs = st.text_area("Danh sách phần mềm (cách nhau bằng dấu phẩy)")
             
-            specs = st.text_input("Cấu hình (CPU, RAM, SSD...)")
-            softs = st.text_area("Phần mềm đã cài (cách nhau bằng dấu phẩy)")
-            
-            if st.form_submit_button("Lưu thiết bị"):
+            if st.form_submit_button("Lưu tài sản"):
+                # Logic khuyến nghị tự động dựa trên loại máy
+                recommendation = "Thiết bị hoạt động bình thường."
+                if a_type in ["PC", "LT"]:
+                    recommendation = "💡 Khuyến nghị: Bảo trì định kỳ mỗi 6 tháng (vệ sinh, tra keo)."
+
                 asset_data = {
                     "asset_tag": full_asset_tag,
                     "type": a_type,
                     "assigned_to_code": emp_code,
                     "specs": {"detail": specs},
-                    "software_list": [s.strip() for s in softs.split(",")]
+                    "software_list": [s.strip() for s in softs.split(",") if s.strip()],
+                    "purchase_date": str(p_date),
+                    "recommendations": recommendation,
+                    "location_id": 1 # Mặc định hoặc lấy theo chi nhánh
                 }
-                supabase.table("assets").insert(asset_data).execute()
-                st.success(f"Đã thêm {full_asset_tag} cho {emp_code}")
+                
+                try:
+                    supabase.table("assets").insert(asset_data).execute()
+                    st.success(f"Đã thêm {full_asset_tag} cho nhân viên {emp_code}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Lỗi khi lưu: {e}")
 
-    # --- PHẦN 3: TÌM KIẾM & THỐNG KÊ CHI TIẾT ---
+    # --- PHẦN 3: TÌM KIẾM CHI TIẾT ---
     st.divider()
-    search = st.text_input("🔍 Nhập Mã NV hoặc Mã Tài sản để tìm nhanh...")
+    search = st.text_input("🔍 Tìm nhanh theo Mã NV hoặc Mã Tài sản...")
     if search:
-        # Query kết hợp cả 2 bảng
         res = supabase.table("assets").select("*, staff(*)").or_(f"assigned_to_code.eq.{search},asset_tag.ilike.%{search}%").execute()
         if res.data:
-            st.write(res.data)
+            for item in res.data:
+                with st.expander(f"📌 {item['asset_tag']} - {item.get('staff', {}).get('full_name', 'N/A')}"):
+                    st.write(f"**Cấu hình:** {item['specs'].get('detail', 'N/A')}")
+                    st.write(f"**Phần mềm:** {', '.join(item['software_list'])}")
+                    st.info(item['recommendations'])
 
 # --- TAB 2: MÁY CHỦ (Quản lý cấu hình JSON) ---
 with tabs[2]:
