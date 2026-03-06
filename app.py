@@ -17,8 +17,6 @@ tab1, tab2, tab3, tab4 = st.tabs([
 ])
 
 # --- TAB 1: QUẢN LÝ THIẾT BỊ ---
-# --- TAB 1: QUẢN LÝ THIẾT BỊ ---
-# --- TAB 1: QUẢN LÝ THIẾT BỊ ---
 with tab1:
     st.header("💻 Danh sách thiết bị")
     
