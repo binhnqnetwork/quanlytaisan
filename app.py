@@ -51,51 +51,56 @@ with tabs[0]:
 # --- TAB 1: THIẾT BỊ & NHÂN VIÊN (Có Tìm kiếm & Nhập liệu) ---
 # --- TAB 1: THIẾT BI & NHÂN VIÊN (NÂNG CẤP) ---
 with tabs[1]:
-    col_form, col_view = st.columns([1, 2])
+    st.subheader("👥 Quản lý Nhân viên & Thiết bị")
+    
+    # --- PHẦN 1: CHỌN/TẠO NHÂN VIÊN ---
+    with st.expander("👤 Bước 1: Chọn hoặc Tạo mới Nhân viên", expanded=True):
+        c1, c2, c3 = st.columns(3)
+        emp_code = c1.text_input("Mã nhân viên (Key)")
+        emp_name = c2.text_input("Họ tên")
+        branch = c3.selectbox("Chi nhánh", ["Nhà máy Long An", "TP.HCM", "Đà Nẵng", "Miền Bắc", "Polypack"])
+        
+        if st.button("Xác nhận thông tin nhân viên"):
+            supabase.table("staff").upsert({
+                "employee_code": emp_code, 
+                "full_name": emp_name, 
+                "branch": branch
+            }).execute()
+            st.success(f"Đã chọn nhân viên: {emp_code}")
 
-    with col_form:
-        st.subheader("📝 Cập nhật Thông tin")
-        with st.form("pro_asset_form"):
-            # Thông tin nhân viên (Khóa chính)
-            emp_code = st.text_input("Mã nhân viên (Key chính)", help="Ví dụ: NV001")
-            emp_name = st.text_input("Tên nhân viên")
-            dept = st.text_input("Bộ phận")
-            branch = st.selectbox("Chi nhánh", ["Nhà máy Long An", "TP.HCM", "Đà Nẵng", "Miền Bắc", "Polypack"])
+    # --- PHẦN 2: THÊM THIẾT BỊ CHO NHÂN VIÊN ĐÃ CHỌN ---
+    if emp_code:
+        st.divider()
+        st.subheader(f"📦 Thêm thiết bị cho [{emp_code}]")
+        with st.form("add_asset_form"):
+            col_a, col_b = st.columns(2)
+            # Áp dụng quy định mã tài sản như đã tư vấn
+            a_type = col_a.selectbox("Loại thiết bị", ["PC", "LT", "MN", "PR"])
+            a_id = col_b.text_input("Số thứ tự (VD: 0001)")
+            full_asset_tag = f"{a_type}{a_id}"
             
-            st.divider()
+            specs = st.text_input("Cấu hình (CPU, RAM, SSD...)")
+            softs = st.text_area("Phần mềm đã cài (cách nhau bằng dấu phẩy)")
             
-            # Thông tin thiết bị
-            asset_tag = st.text_input("Mã tài sản (Asset Tag)")
-            asset_type = st.selectbox("Loại thiết bị", ["PC", "Laptop", "Máy in", "Khác"])
-            
-            # Cấu hình chi tiết (Sẽ lưu vào JSON specs)
-            cpu = st.text_input("Cấu hình CPU/RAM")
-            software = st.text_area("Danh sách phần mềm (cách nhau bởi dấu phẩy)")
-            
-            last_mt = st.date_input("Ngày bảo trì/thay thế gần nhất")
-            
-            if st.form_submit_button("Lưu hệ thống"):
-                # 1. Cập nhật/Thêm nhân viên
-                supabase.table("staff").upsert({
-                    "employee_code": emp_code, "full_name": emp_name, 
-                    "department": dept, "branch": branch
-                }).execute()
-                
-                # 2. Lưu thiết bị và cấu hình
-                specs = {"cpu_ram": cpu, "last_maintenance": str(last_mt)}
-                soft_list = [s.strip() for s in software.split(",")]
-                
-                # Logic khuyến nghị tự động
-                rec = "Thiết bị ổn định"
-                if asset_type in ["PC", "Laptop"] and (datetime.now().date() - last_mt).days > 180:
-                    rec = "⚠️ Khuyến nghị: Cần vệ sinh công nghiệp và thay keo tản nhiệt."
-                
-                supabase.table("assets").insert({
-                    "asset_tag": asset_tag, "type": asset_type, 
-                    "assigned_to_code": emp_code, "specs": specs,
-                    "software_list": soft_list, "recommendations": rec
-                }).execute()
-                st.success("Đã cập nhật dữ liệu thành công!")
+            if st.form_submit_button("Lưu thiết bị"):
+                asset_data = {
+                    "asset_tag": full_asset_tag,
+                    "type": a_type,
+                    "assigned_to_code": emp_code,
+                    "specs": {"detail": specs},
+                    "software_list": [s.strip() for s in softs.split(",")]
+                }
+                supabase.table("assets").insert(asset_data).execute()
+                st.success(f"Đã thêm {full_asset_tag} cho {emp_code}")
+
+    # --- PHẦN 3: TÌM KIẾM & THỐNG KÊ CHI TIẾT ---
+    st.divider()
+    search = st.text_input("🔍 Nhập Mã NV hoặc Mã Tài sản để tìm nhanh...")
+    if search:
+        # Query kết hợp cả 2 bảng
+        res = supabase.table("assets").select("*, staff(*)").or_(f"assigned_to_code.eq.{search},asset_tag.ilike.%{search}%").execute()
+        if res.data:
+            st.write(res.data)
 
     with col_view:
         st.subheader("🔍 Tra cứu & Khuyến nghị")
