@@ -1,48 +1,65 @@
 import streamlit as st
+from supabase import create_client
 import pandas as pd
 from datetime import datetime, timedelta
 
-# Import các module (giả sử bạn đã tạo các file trong src/modules/)
-# from src.modules import inventory, servers, licenses, vault
+# Kết nối Supabase
+supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
-st.set_page_config(page_title="Enterprise Asset Management", layout="wide")
+st.title("🚀 Enterprise Asset Management")
 
-def main():
-    st.sidebar.title("🏢 Quản trị Tài sản v1.0")
+tab1, tab2, tab3, tab4 = st.tabs([
+    "💻 Thiết bị & Nhân viên", 
+    "🖥️ Quản lý Server", 
+    "🌐 Bản quyền & Domain", 
+    "🔐 Vault Mật khẩu"
+])
+
+# --- TAB 1: QUẢN LÝ THIẾT BỊ ---
+with tab1:
+    st.header("Danh sách thiết bị theo địa điểm")
+    locations = ["Nhà máy Long An", "Chi nhánh Thành phố", "Đà Nẵng", "Miền Bắc", "Polypack"]
+    loc_filter = st.selectbox("Chọn địa điểm", locations)
     
-    # 1. Phân quyền đơn giản (Demo)
-    menu = ["Dashboard", "Thiết bị & Nhân sự", "Quản lý Server", "Bản quyền & Domain", "Kho mật khẩu (Vault)"]
-    choice = st.sidebar.selectbox("Menu hệ thống", menu)
+    # Query mẫu (giả sử bảng assets đã có dữ liệu)
+    res = supabase.table("assets").select("*, staff(full_name)").eq("location", loc_filter).execute()
+    if res.data:
+        st.table(res.data)
+    else:
+        st.info("Chưa có thiết bị nào tại địa điểm này.")
 
-    if choice == "Dashboard":
-        render_dashboard()
-    elif choice == "Bản quyền & Domain":
-        render_license_management()
-    # ... tương tự cho các module khác
-
-def render_dashboard():
-    st.header("Tổng quan hệ thống")
-    col1, col2, col3 = st.columns(3)
+# --- TAB 3: BẢN QUYỀN & NHẮC HẸN ---
+with tab3:
+    st.header("Theo dõi bản quyền & Domain")
     
-    # Ví dụ Dashboard metrics
-    col1.metric("Tổng thiết bị", "120")
-    col2.metric("Server đang chạy", "5")
-    col3.metric("Sắp hết hạn (30d)", "3", delta_color="inverse")
-
-def render_license_management():
-    st.subheader("🛡️ Quản lý Bản quyền & Domain")
-    
-    # Logic nhắc hẹn 1 tháng
+    # Logic nhắc hẹn trước 1 tháng
     today = datetime.now().date()
-    next_month = today + timedelta(days=30)
+    warning_period = today + timedelta(days=30)
     
-    # Giả lập lấy data từ Supabase
-    # data = supabase.table("licenses").select("*").execute().data
-    # df = pd.DataFrame(data)
-    
-    st.warning("⚠️ Có 2 Domain sắp hết hạn trong 30 ngày tới!")
-    # Hiển thị bảng dữ liệu với Streamlit Data Editor
-    # st.data_editor(df)
+    res = supabase.table("licenses").select("*").execute()
+    if res.data:
+        df = pd.DataFrame(res.data)
+        df['expiry_date'] = pd.to_datetime(df['expiry_date']).dt.date
+        
+        # Highlight các dòng sắp hết hạn
+        def highlight_expiry(row):
+            if row['expiry_date'] <= warning_period:
+                return ['background-color: #ff4b4b'] * len(row)
+            return [''] * len(row)
+            
+        st.dataframe(df.style.apply(highlight_expiry, axis=1))
 
-if __name__ == "__main__":
-    main()
+# --- TAB 4: BÍ MẬT (VAULT) ---
+with tab4:
+    st.header("Kho mật khẩu nội bộ")
+    with st.expander("➕ Thêm mật khẩu mới"):
+        site = st.text_input("Trang web/Dịch vụ")
+        u_name = st.text_input("Username")
+        p_word = st.text_input("Password", type="password")
+        if st.button("Lưu bảo mật"):
+            from utils import encrypt_password
+            enc_p = encrypt_password(p_word)
+            supabase.table("secret_vault").insert({
+                "service_name": site, "username": u_name, "encrypted_password": enc_p
+            }).execute()
+            st.success("Đã mã hóa và lưu trữ!")
