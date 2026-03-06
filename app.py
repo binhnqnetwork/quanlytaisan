@@ -176,7 +176,6 @@ with tabs[1]:
             st.table(df_user[['asset_tag', 'type', 'purchase_date', 'recommendations']])
         else:
             st.info("Nhân viên này chưa được cấp thiết bị nào.")
-
 # --- TAB 2: MÁY CHỦ (Quản lý cấu hình JSON) ---
 with tabs[2]:
     st.subheader("🖥️ Quản lý Máy chủ")
