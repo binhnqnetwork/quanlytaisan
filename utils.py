@@ -6,7 +6,7 @@ import base64
 def get_cipher():
     # Fernet yêu cầu key 32 bytes base64. Ta sẽ hash key của bạn để đảm bảo độ dài.
     import hashlib
-    key = hashlib.sha256(st.secrets["ENCRYPTION_KEY"].encode()).digest()
+    key = hashlib.sha256(st.secrets["4Oqlts"].encode()).digest()
     return Fernet(base64.urlsafe_b64encode(key))
 
 def encrypt_password(password):
