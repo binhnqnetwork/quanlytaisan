@@ -52,6 +52,30 @@ with tab1:
     except Exception as e:
         st.error(f"Lỗi truy vấn: {e}")
 
+with tab2:
+    st.header("🖥️ Quản lý Máy chủ & Phần mềm")
+    
+    # Lấy danh sách thiết bị là 'Server'
+    res = supabase.table("assets").select("*").eq("type", "Server").execute()
+    
+    if res.data:
+        for server in res.data:
+            with st.expander(f"📌 Server: {server['asset_tag']} - {server['status']}"):
+                col1, col2 = st.columns(2)
+                # Hiển thị cấu hình từ JSON
+                specs = server.get('specs', {})
+                col1.write(f"**CPU:** {specs.get('cpu', 'N/A')}")
+                col1.write(f"**RAM:** {specs.get('ram', 'N/A')}")
+                
+                col2.info(f"📅 **Bảo trì:** {server.get('last_maintenance', 'Chưa rõ')}")
+                
+                # Nút cập nhật nhanh (Enterprise style)
+                if st.button(f"Ghi nhận bảo trì cho {server['asset_tag']}", key=server['id']):
+                    today = datetime.now().strftime("%Y-%m-%d")
+                    supabase.table("assets").update({"last_maintenance": today}).eq("id", server['id']).execute()
+                    st.success("Đã cập nhật ngày bảo trì!")
+    else:
+        st.info("Chưa có máy chủ nào trong hệ thống.")
 # --- TAB 3: BẢN QUYỀN & NHẮC HẸN ---
 with tab3:
     st.header("Theo dõi bản quyền & Domain")
