@@ -49,26 +49,76 @@ with tabs[0]:
         st.info("Chưa có dữ liệu để thống kê.")
 
 # --- TAB 1: THIẾT BỊ & NHÂN VIÊN (Có Tìm kiếm & Nhập liệu) ---
+# --- TAB 1: THIẾT BI & NHÂN VIÊN (NÂNG CẤP) ---
 with tabs[1]:
-    col_f, col_l = st.columns([1, 2])
-    with col_f:
-        st.subheader("➕ Thêm Thiết bị")
-        with st.form("form_asset"):
-            tag = st.text_input("Mã tài sản (Asset Tag)")
-            a_type = st.selectbox("Loại", ["Laptop", "PC", "Mobile"])
-            loc_id = st.number_input("Location ID (1-5)", min_value=1, max_value=5)
-            if st.form_submit_button("Lưu thiết bị"):
-                supabase.table("assets").insert({"asset_tag": tag, "type": a_type, "location_id": loc_id}).execute()
-                st.success("Đã thêm!")
+    col_form, col_view = st.columns([1, 2])
 
-    with col_l:
-        st.subheader("🔍 Danh sách & Tìm kiếm")
-        search_q = st.text_input("Tìm kiếm theo Mã tài sản...", key="search_asset")
-        query = supabase.table("assets").select("*").neq("type", "Server")
-        if search_q:
-            query = query.ilike("asset_tag", f"%{search_q}%")
-        data = query.execute().data
-        if data: st.dataframe(pd.DataFrame(data), use_container_width=True)
+    with col_form:
+        st.subheader("📝 Cập nhật Thông tin")
+        with st.form("pro_asset_form"):
+            # Thông tin nhân viên (Khóa chính)
+            emp_code = st.text_input("Mã nhân viên (Key chính)", help="Ví dụ: NV001")
+            emp_name = st.text_input("Tên nhân viên")
+            dept = st.text_input("Bộ phận")
+            branch = st.selectbox("Chi nhánh", ["Nhà máy Long An", "TP.HCM", "Đà Nẵng", "Miền Bắc", "Polypack"])
+            
+            st.divider()
+            
+            # Thông tin thiết bị
+            asset_tag = st.text_input("Mã tài sản (Asset Tag)")
+            asset_type = st.selectbox("Loại thiết bị", ["PC", "Laptop", "Máy in", "Khác"])
+            
+            # Cấu hình chi tiết (Sẽ lưu vào JSON specs)
+            cpu = st.text_input("Cấu hình CPU/RAM")
+            software = st.text_area("Danh sách phần mềm (cách nhau bởi dấu phẩy)")
+            
+            last_mt = st.date_input("Ngày bảo trì/thay thế gần nhất")
+            
+            if st.form_submit_button("Lưu hệ thống"):
+                # 1. Cập nhật/Thêm nhân viên
+                supabase.table("staff").upsert({
+                    "employee_code": emp_code, "full_name": emp_name, 
+                    "department": dept, "branch": branch
+                }).execute()
+                
+                # 2. Lưu thiết bị và cấu hình
+                specs = {"cpu_ram": cpu, "last_maintenance": str(last_mt)}
+                soft_list = [s.strip() for s in software.split(",")]
+                
+                # Logic khuyến nghị tự động
+                rec = "Thiết bị ổn định"
+                if asset_type in ["PC", "Laptop"] and (datetime.now().date() - last_mt).days > 180:
+                    rec = "⚠️ Khuyến nghị: Cần vệ sinh công nghiệp và thay keo tản nhiệt."
+                
+                supabase.table("assets").insert({
+                    "asset_tag": asset_tag, "type": asset_type, 
+                    "assigned_to_code": emp_code, "specs": specs,
+                    "software_list": soft_list, "recommendations": rec
+                }).execute()
+                st.success("Đã cập nhật dữ liệu thành công!")
+
+    with col_view:
+        st.subheader("🔍 Tra cứu & Khuyến nghị")
+        search_emp = st.text_input("Nhập Mã nhân viên để tra cứu nhanh...")
+        
+        # Query lấy dữ liệu nhân viên và thiết bị họ đang dùng
+        if search_emp:
+            res = supabase.table("assets").select("*, staff(*)").eq("assigned_to_code", search_emp).execute()
+            if res.data:
+                for item in res.data:
+                    with st.expander(f"📦 {item['type']}: {item['asset_tag']} - {item['staff']['full_name']}"):
+                        c1, c2 = st.columns(2)
+                        c1.write(f"**Bộ phận:** {item['staff']['department']}")
+                        c1.write(f"**Cấu hình:** {item['specs'].get('cpu_ram')}")
+                        
+                        c2.write(f"**Phần mềm:** {', '.join(item['software_list'])}")
+                        st.info(f"💡 **Khuyến nghị:** {item['recommendations']}")
+                        
+                        if st.button("Xác nhận đã bảo trì", key=item['asset_tag']):
+                            # Logic cập nhật nhanh ngày bảo trì
+                            pass
+            else:
+                st.warning("Không tìm thấy dữ liệu cho nhân viên này.")
 
 # --- TAB 2: MÁY CHỦ (Quản lý cấu hình JSON) ---
 with tabs[2]:
