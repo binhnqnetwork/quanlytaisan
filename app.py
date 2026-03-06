@@ -24,29 +24,51 @@ tabs = st.tabs(["📊 Thống kê Tổng quan", "💻 Thiết bị & Nhân viên
 
 # --- TAB 0: THỐNG KÊ CHUẨN PRO ---
 with tabs[0]:
-    st.header("📈 Dashboard Phân tích")
-    res = supabase.table("assets").select("*, locations(name)").execute()
+    st.header("📊 Thống kê Tài sản Toàn diện")
+    
+    # Lấy dữ liệu gộp từ Assets và Staff
+    res = supabase.table("assets").select("*, staff(*)").execute()
+    
     if res.data:
-        df_all = pd.DataFrame(res.data)
-        df_all['location_name'] = df_all['locations'].apply(lambda x: x['name'] if x else "N/A")
-        
-        # Row 1: Metrics
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Tổng thiết bị", len(df_all))
-        m2.metric("Máy chủ", len(df_all[df_all['type'] == 'Server']))
-        m3.metric("Laptop/PC", len(df_all[df_all['type'] != 'Server']))
-        
-        # Row 2: Charts
-        c1, c2 = st.columns(2)
-        with c1:
-            fig_loc = px.pie(df_all, names='location_name', title="Phân bổ theo địa điểm", hole=0.4)
-            st.plotly_chart(fig_loc, use_container_width=True)
-        with c2:
-            fig_type = px.bar(df_all.groupby('type').size().reset_index(name='count'), 
-                             x='type', y='count', title="Số lượng theo loại", color='type')
-            st.plotly_chart(fig_type, use_container_width=True)
+        df = pd.DataFrame(res.data)
+        # Giải phẳng dữ liệu nhân viên từ cột lồng
+        df['department'] = df['staff'].apply(lambda x: x.get('department') if x else "Chưa gán")
+        df['branch'] = df['staff'].apply(lambda x: x.get('branch') if x else "Chưa gán")
+
+        # --- BỘ LỌC (FILTERS) ---
+        st.markdown("#### 🛠️ Bộ lọc dữ liệu")
+        f_col1, f_col2 = st.columns(2)
+        with f_col1:
+            sel_branch = st.multiselect("Lọc theo Chi nhánh", options=df['branch'].unique(), default=df['branch'].unique())
+        with f_col2:
+            sel_dept = st.multiselect("Lọc theo Phòng ban", options=df['department'].unique(), default=df['department'].unique())
+
+        # Áp dụng bộ lọc
+        mask = df['branch'].isin(sel_branch) & df['department'].isin(sel_dept)
+        filtered_df = df[mask]
+
+        # --- HIỂN THỊ CHỈ SỐ ---
+        st.divider()
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Tổng thiết bị (đã lọc)", len(filtered_df))
+        m2.metric("Số nhân viên sở hữu", filtered_df['assigned_to_code'].nunique())
+        m3.metric("Cần bảo trì", len(filtered_df[filtered_df['recommendations'].str.contains("⚠️", na=False)]))
+
+        # --- BIỂU ĐỒ ---
+        c_chart1, c_chart2 = st.columns(2)
+        with c_chart1:
+            fig1 = px.pie(filtered_df, names='type', title="Cơ cấu loại thiết bị", hole=0.4)
+            st.plotly_chart(fig1, use_container_width=True)
+        with c_chart2:
+            fig2 = px.bar(filtered_df.groupby('branch').size().reset_index(name='Số lượng'), 
+                         x='branch', y='Số lượng', color='branch', title="Phân bổ theo Chi nhánh")
+            st.plotly_chart(fig2, use_container_width=True)
+            
+        # Hiển thị bảng dữ liệu chi tiết bên dưới
+        if st.checkbox("Xem danh sách chi tiết"):
+            st.dataframe(filtered_df[['asset_tag', 'type', 'assigned_to_code', 'department', 'branch', 'recommendations']])
     else:
-        st.info("Chưa có dữ liệu để thống kê.")
+        st.info("Chưa có dữ liệu tài sản để thống kê.")
 
 # --- TAB 1: THIẾT BI & NHÂN VIÊN (NÂNG CẤP) ---
 with tabs[1]:
