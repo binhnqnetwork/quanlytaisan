@@ -74,14 +74,15 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("👥 Quản lý Nhân viên & Cấp phát")
     
-    # Map địa điểm
+    # Map địa điểm chuẩn
     loc_map = {"Nhà máy Long An": 1, "TP.HCM": 2, "Đà Nẵng": 3, "Miền Bắc": 4, "Polypack": 5}
+    branch_list = list(loc_map.keys())
 
     # --- BƯỚC 1: TRA CỨU / NHẬP MÃ NV ---
     st.markdown("### 🔍 1. Nhận diện nhân sự")
     e_code = st.text_input("Nhập Mã nhân viên", placeholder="VD: NV001").strip()
     
-    # Biến tạm để chứa dữ liệu
+    # Khởi tạo dữ liệu mặc định an toàn
     st_data = {"full_name": "", "department": "", "branch": "Nhà máy Long An", "is_active": True}
     exists = False
 
@@ -93,18 +94,29 @@ with tabs[1]:
             if not st_data.get('is_active', True):
                 st.warning("⚠️ Nhân viên này đã nghỉ việc (Inactive).")
             else:
-                st.success(f"✅ Đang sửa hồ sơ: {st_data['full_name']}")
+                st.success(f"✅ Đang quản lý hồ sơ: {st_data['full_name']}")
 
     # --- FORM NHÂN VIÊN ---
-    with st.form("staff_pro_v4"):
+    with st.form("staff_pro_v5"):
         c1, c2, c3 = st.columns(3)
-        f_name = c1.text_input("Họ và Tên", value=st_data["full_name"])
+        f_name = c1.text_input("Họ và Tên", value=st_data.get("full_name", ""))
         f_dept = c2.text_input("Bộ phận", value=st_data.get("department", ""))
-        f_branch = c3.selectbox("Chi nhánh", list(loc_map.keys()), 
-                               index=list(loc_map.keys()).index(st_data.get("branch", "Nhà máy Long An")))
         
+        # SỬA LỖI VALUEERROR: Kiểm tra nếu branch trong DB có trong list không
+        db_branch = st_data.get("branch", "Nhà máy Long An")
+        try:
+            default_idx = branch_list.index(db_branch)
+        except ValueError:
+            default_idx = 0 # Nếu không thấy thì mặc định chọn cái đầu tiên
+            
+        f_branch = c3.selectbox("Chi nhánh", branch_list, index=default_idx)
+        
+        # Nút Submit (Phải nằm trong st.form)
         col_s1, col_s2 = st.columns(2)
-        if col_s1.form_submit_button("💾 Lưu / Cập nhật"):
+        btn_save = col_s1.form_submit_button("💾 Lưu / Cập nhật")
+        btn_off = col_s2.form_submit_button("🗑️ Đánh dấu Nghỉ việc")
+
+        if btn_save:
             if e_code and f_name:
                 supabase.table("staff").upsert({
                     "employee_code": e_code, "full_name": f_name, 
@@ -112,8 +124,10 @@ with tabs[1]:
                 }).execute()
                 st.success("Đã cập nhật nhân viên!")
                 st.rerun()
+            else:
+                st.error("Vui lòng điền đủ Mã và Tên nhân viên.")
 
-        if exists and col_s2.form_submit_button("🗑️ Đánh dấu Nghỉ việc"):
+        if exists and btn_off:
             supabase.table("staff").update({"is_active": False}).eq("employee_code", e_code).execute()
             st.warning("Đã chuyển trạng thái Nghỉ việc.")
             st.rerun()
@@ -122,7 +136,7 @@ with tabs[1]:
     if e_code and exists and st_data.get('is_active', True):
         st.divider()
         st.subheader(f"📦 Cấp tài sản cho {f_name}")
-        with st.form("asset_pro_v4"):
+        with st.form("asset_pro_v5"):
             a1, a2, a3 = st.columns(3)
             a_type = a1.selectbox("Loại", ["PC", "LT", "MN", "PR"])
             a_id = a2.text_input("Số thứ tự (VD: 0001)")
@@ -132,10 +146,11 @@ with tabs[1]:
             a_specs = st.text_input("Cấu hình chi tiết")
             a_softs = st.text_area("Danh sách phần mềm (cách nhau bằng dấu phẩy)")
             
-            if st.form_submit_button("🚀 Xác nhận cấp phát"):
-                # CHÚ Ý: Chuyển text thành List để khớp với JSONB trong SQL
+            # Nút Submit cho form Tài sản
+            btn_asset = st.form_submit_button("🚀 Xác nhận cấp phát")
+            
+            if btn_asset:
                 soft_list = [s.strip() for s in a_softs.split(",") if s.strip()]
-                
                 try:
                     supabase.table("assets").upsert({
                         "asset_tag": a_tag,
@@ -152,15 +167,13 @@ with tabs[1]:
                 except Exception as e:
                     st.error(f"Lỗi: {e}")
 
-    # --- BƯỚC 3: DANH SÁCH THIẾT BỊ ĐANG DÙNG ---
+    # --- BƯỚC 3: HIỂN THỊ DƯỚI DẠNG DANH SÁCH ---
     if exists:
         st.markdown(f"#### 🖥️ Tài sản hiện có của {f_name}")
         as_res = supabase.table("assets").select("*").eq("assigned_to_code", e_code).execute()
         if as_res.data:
             df_view = pd.DataFrame(as_res.data)
-            # Hiển thị danh sách phần mềm đẹp hơn
-            df_view['Phần mềm'] = df_view['software_list'].apply(lambda x: ", ".join(x) if isinstance(x, list) else x)
-            st.dataframe(df_view[['asset_tag', 'type', 'purchase_date', 'Phần mềm']], use_container_width=True)
+            st.dataframe(df_view[['asset_tag', 'type', 'purchase_date', 'recommendations']], use_container_width=True)
 # --- TAB 2: MÁY CHỦ (Quản lý cấu hình JSON) ---
 with tabs[2]:
     st.subheader("🖥️ Quản lý Máy chủ")
