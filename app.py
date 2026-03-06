@@ -48,7 +48,6 @@ with tabs[0]:
     else:
         st.info("Chưa có dữ liệu để thống kê.")
 
-# --- TAB 1: THIẾT BỊ & NHÂN VIÊN (Có Tìm kiếm & Nhập liệu) ---
 # --- TAB 1: THIẾT BI & NHÂN VIÊN (NÂNG CẤP) ---
 with tabs[1]:
     st.subheader("👥 Quản lý Nhân viên & Thiết bị")
@@ -101,29 +100,6 @@ with tabs[1]:
         res = supabase.table("assets").select("*, staff(*)").or_(f"assigned_to_code.eq.{search},asset_tag.ilike.%{search}%").execute()
         if res.data:
             st.write(res.data)
-
-    with col_view:
-        st.subheader("🔍 Tra cứu & Khuyến nghị")
-        search_emp = st.text_input("Nhập Mã nhân viên để tra cứu nhanh...")
-        
-        # Query lấy dữ liệu nhân viên và thiết bị họ đang dùng
-        if search_emp:
-            res = supabase.table("assets").select("*, staff(*)").eq("assigned_to_code", search_emp).execute()
-            if res.data:
-                for item in res.data:
-                    with st.expander(f"📦 {item['type']}: {item['asset_tag']} - {item['staff']['full_name']}"):
-                        c1, c2 = st.columns(2)
-                        c1.write(f"**Bộ phận:** {item['staff']['department']}")
-                        c1.write(f"**Cấu hình:** {item['specs'].get('cpu_ram')}")
-                        
-                        c2.write(f"**Phần mềm:** {', '.join(item['software_list'])}")
-                        st.info(f"💡 **Khuyến nghị:** {item['recommendations']}")
-                        
-                        if st.button("Xác nhận đã bảo trì", key=item['asset_tag']):
-                            # Logic cập nhật nhanh ngày bảo trì
-                            pass
-            else:
-                st.warning("Không tìm thấy dữ liệu cho nhân viên này.")
 
 # --- TAB 2: MÁY CHỦ (Quản lý cấu hình JSON) ---
 with tabs[2]:
