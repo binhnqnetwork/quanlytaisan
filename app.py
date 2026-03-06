@@ -74,108 +74,87 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("👥 Quản lý Nhân sự & Cấp phát Tài sản")
     
-    # Map ID địa điểm như đã tạo ở bước trước
     location_map = {"Nhà máy Long An": 1, "Chi nhánh TP.HCM": 2, "Đà Nẵng": 3, "Miền Bắc": 4, "Polypack": 5}
 
     # --- BƯỚC 1: NHẬN DIỆN MÃ NHÂN VIÊN ---
     st.markdown("### 🔍 1. Nhận diện & Chỉnh sửa Nhân viên")
     emp_code_input = st.text_input("Nhập Mã nhân viên (Key chính)", placeholder="VD: NV001").strip()
     
-    # Khởi tạo giá trị mặc định cho Form
+    # Khởi tạo dữ liệu trống
     current_staff = {"full_name": "", "department": "", "branch": "Nhà máy Long An", "is_active": True}
-    is_new_staff = True
+    is_new = True
 
     if emp_code_input:
-        # Truy vấn kiểm tra nhân viên đã tồn tại chưa
-        staff_res = supabase.table("staff").select("*").eq("employee_code", emp_code_input).execute()
-        
-        if staff_res.data:
-            current_staff = staff_res.data[0]
-            is_new_staff = False
+        res = supabase.table("staff").select("*").eq("employee_code", emp_code_input).execute()
+        if res.data:
+            current_staff = res.data[0]
+            is_new = False
             if not current_staff.get('is_active', True):
-                st.warning(f"⚠️ Nhân viên {current_staff['full_name']} hiện đang ở trạng thái: ĐÃ NGHỈ VIỆC")
+                st.warning(f"⚠️ Nhân viên {current_staff['full_name']} đã NGHỈ VIỆC.")
             else:
-                st.success(f"✅ Đang hiển thị dữ liệu của: {current_staff['full_name']}")
-        else:
-            st.info("🆕 Mã nhân viên mới. Vui lòng nhập thông tin để thêm vào hệ thống.")
+                st.success(f"✅ Đang quản lý hồ sơ: {current_staff['full_name']}")
 
-    # --- FORM NHẬP / CHỈNH SỬA NHÂN VIÊN ---
-    with st.form("staff_management_form"):
+    # --- FORM QUẢN LÝ NHÂN VIÊN ---
+    with st.form("staff_pro_form"):
         c1, c2, c3 = st.columns(3)
-        emp_name = c1.text_input("Họ và Tên", value=current_staff["full_name"])
-        dept = c2.text_input("Bộ phận / Phòng ban", value=current_staff.get("department", ""))
+        name = c1.text_input("Họ và Tên", value=current_staff["full_name"])
+        dept = c2.text_input("Bộ phận", value=current_staff.get("department", ""))
         
-        # Xử lý Index cho Selectbox chi nhánh
-        branch_list = list(location_map.keys())
-        default_branch_idx = branch_list.index(current_staff.get("branch", "Nhà máy Long An"))
-        branch = c3.selectbox("Chi nhánh", branch_list, index=default_branch_idx)
+        b_list = list(location_map.keys())
+        b_idx = b_list.index(current_staff.get("branch", "Nhà máy Long An")) if current_staff.get("branch") in b_list else 0
+        branch = c3.selectbox("Chi nhánh", b_list, index=b_idx)
         
-        col_btn1, col_btn2 = st.columns(2)
+        btn_save, btn_off = st.columns(2)
         
-        # Nút Lưu/Cập nhật
-        submit_label = "💾 Lưu nhân viên mới" if is_new_staff else "📝 Cập nhật thông tin"
-        if col_btn1.form_submit_button(submit_label):
-            if emp_code_input and emp_name:
+        if btn_save.form_submit_button("💾 Lưu / Cập nhật"):
+            if emp_code_input and name:
                 supabase.table("staff").upsert({
                     "employee_code": emp_code_input,
-                    "full_name": emp_name,
+                    "full_name": name,
                     "department": dept,
                     "branch": branch,
-                    "is_active": True # Tự động active lại nếu có chỉnh sửa
+                    "is_active": True # Tự động kích hoạt lại nếu có chỉnh sửa
                 }).execute()
-                st.success("Đã lưu dữ liệu nhân viên thành công!")
-                st.rerun()
-            else:
-                st.error("Vui lòng nhập đầy đủ Mã và Tên nhân viên.")
-
-        # Nút Inactive (Nghỉ việc) - Chỉ hiện khi nhân viên đã tồn tại
-        if not is_new_staff:
-            if col_btn2.form_submit_button("🗑️ Đánh dấu Nghỉ việc"):
-                supabase.table("staff").update({"is_active": False}).eq("employee_code", emp_code_input).execute()
-                st.warning(f"Đã chuyển trạng thái nhân viên {emp_name} sang Nghỉ việc.")
+                st.success("Đã cập nhật dữ liệu nhân viên!")
                 st.rerun()
 
-    # --- BƯỚC 2: CẤP PHÁT THIẾT BỊ (Chỉ hiện khi đã xác định được nhân viên) ---
-    if emp_code_input and not is_new_staff and current_staff.get('is_active', True):
+        if not is_new and btn_off.form_submit_button("🗑️ Đánh dấu Nghỉ việc"):
+            supabase.table("staff").update({"is_active": False}).eq("employee_code", emp_code_input).execute()
+            st.warning("Đã chuyển trạng thái nhân viên sang Inactive.")
+            st.rerun()
+
+    # --- BƯỚC 2: CẤP THIẾT BỊ (Chỉ hiện cho nhân viên đang làm việc) ---
+    if emp_code_input and not is_new and current_staff.get('is_active', True):
         st.divider()
-        st.subheader(f"📦 Cấp tài sản cho: {emp_name}")
-        
-        with st.form("asset_assignment_form"):
+        st.subheader(f"📦 Cấp tài sản mới cho {name}")
+        with st.form("asset_assign"):
             col_a, col_b, col_c = st.columns(3)
-            a_type = col_a.selectbox("Loại thiết bị", ["PC", "LT", "MN", "PR"]) 
+            a_type = col_a.selectbox("Loại", ["PC", "LT", "MN", "PR"])
             a_num = col_b.text_input("Số thứ tự (VD: 0001)")
-            p_date = col_c.date_input("Ngày cấp phát")
+            a_tag = f"{a_type}{a_num}"
             
-            a_tag = f"{a_type}{a_num}" # Tạo mã chuẩn PC0001
-            specs = st.text_input("Cấu hình chi tiết (CPU, RAM, Màn hình...)")
-            softs = st.text_area("Danh sách phần mềm (cách nhau bằng dấu phẩy)")
+            p_date = col_c.date_input("Ngày cấp")
+            specs = st.text_input("Cấu hình chi tiết")
             
-            if st.form_submit_button("🚀 Xác nhận cấp thiết bị"):
+            if st.form_submit_button("🚀 Xác nhận cấp phát"):
                 try:
-                    asset_payload = {
-                        "asset_tag": a_tag,
-                        "type": a_type,
-                        "assigned_to_code": emp_code_input,
-                        "location_id": location_map[branch],
-                        "specs": {"detail": specs},
-                        "software_list": [s.strip() for s in softs.split(",") if s.strip()],
-                        "recommendations": "💡 Khuyến nghị: Bảo trì sau 6 tháng" if a_type in ["PC", "LT"] else "Theo dõi định kỳ",
-                        "purchase_date": str(p_date)
-                    }
-                    supabase.table("assets").insert(asset_payload).execute()
+                    supabase.table("assets").insert({
+                        "asset_tag": a_tag, "type": a_type, "assigned_to_code": emp_code_input,
+                        "location_id": location_map[branch], "purchase_date": str(p_date),
+                        "specs": {"detail": specs}, "recommendations": "Bảo trì sau 6 tháng"
+                    }).execute()
                     st.success(f"Đã cấp mã {a_tag} thành công!")
                 except Exception as e:
-                    st.error(f"Lỗi: {e}")
+                    st.error(f"Lỗi cấp tài sản: {e}")
 
-    # --- PHẦN 3: XEM DANH SÁCH THIẾT BỊ ĐANG DÙNG ---
-    if emp_code_input and not is_new_staff:
-        st.write(f"#### 🖥️ Thiết bị nhân viên này đang sử dụng:")
-        user_assets = supabase.table("assets").select("*").eq("assigned_to_code", emp_code_input).execute()
-        if user_assets.data:
-            df_user = pd.DataFrame(user_assets.data)
-            st.table(df_user[['asset_tag', 'type', 'purchase_date', 'recommendations']])
+    # --- BƯỚC 3: DANH SÁCH TÀI SẢN ĐANG GIỮ ---
+    if not is_new:
+        st.markdown(f"#### 🖥️ Tài sản {name} đang quản lý")
+        assets_res = supabase.table("assets").select("*").eq("assigned_to_code", emp_code_input).execute()
+        if assets_res.data:
+            st.table(pd.DataFrame(assets_res.data)[['asset_tag', 'type', 'purchase_date']])
         else:
-            st.info("Nhân viên này chưa được cấp thiết bị nào.")
+            st.info("Chưa có tài sản nào được gán.")
 # --- TAB 2: MÁY CHỦ (Quản lý cấu hình JSON) ---
 with tabs[2]:
     st.subheader("🖥️ Quản lý Máy chủ")
