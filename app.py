@@ -25,52 +25,109 @@ tabs = st.tabs(["📊 Thống kê Tổng quan", "💻 Thiết bị & Nhân viên
 
 # --- TAB 0: THỐNG KÊ CHUẨN PRO ---
 with tabs[0]:
-    st.header("📊 Thống kê Tài sản Toàn diện")
+    st.title("📊 Thống kê Tài sản Toàn diện")
     
-    # Lấy dữ liệu gộp từ Assets và Staff
+    # 1. TRUY VẤN DỮ LIỆU TỔNG HỢP
+    # Kết hợp Assets, Staff và cả Licenses để thống kê
     res = supabase.table("assets").select("*, staff(*)").execute()
+    lic_res = supabase.table("licenses").select("*").execute()
     
     if res.data:
         df = pd.DataFrame(res.data)
-        # Giải phẳng dữ liệu nhân viên từ cột lồng
+        # Giải phẳng dữ liệu từ bảng staff (nối qua employee_code)
         df['department'] = df['staff'].apply(lambda x: x.get('department') if x else "Chưa gán")
         df['branch'] = df['staff'].apply(lambda x: x.get('branch') if x else "Chưa gán")
+        df['staff_name'] = df['staff'].apply(lambda x: x.get('full_name') if x else "N/A")
 
         # --- BỘ LỌC (FILTERS) ---
-        st.markdown("#### 🛠️ Bộ lọc dữ liệu")
-        f_col1, f_col2 = st.columns(2)
-        with f_col1:
-            sel_branch = st.multiselect("Lọc theo Chi nhánh", options=df['branch'].unique(), default=df['branch'].unique())
-        with f_col2:
-            sel_dept = st.multiselect("Lọc theo Phòng ban", options=df['department'].unique(), default=df['department'].unique())
+        with st.expander("🛠️ Bộ lọc dữ liệu chuyên sâu", expanded=False):
+            f_col1, f_col2, f_col3 = st.columns(3)
+            sel_branch = f_col1.multiselect("Chi nhánh", options=df['branch'].unique(), default=df['branch'].unique())
+            sel_dept = f_col2.multiselect("Phòng ban", options=df['department'].unique(), default=df['department'].unique())
+            sel_type = f_col3.multiselect("Loại thiết bị", options=df['type'].unique(), default=df['type'].unique())
 
         # Áp dụng bộ lọc
-        mask = df['branch'].isin(sel_branch) & df['department'].isin(sel_dept)
+        mask = df['branch'].isin(sel_branch) & df['department'].isin(sel_dept) & df['type'].isin(sel_type)
         filtered_df = df[mask]
 
-        # --- HIỂN THỊ CHỈ SỐ ---
-        st.divider()
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Tổng thiết bị (đã lọc)", len(filtered_df))
-        m2.metric("Số nhân viên sở hữu", filtered_df['assigned_to_code'].nunique())
-        m3.metric("Cần bảo trì", len(filtered_df[filtered_df['recommendations'].str.contains("⚠️", na=False)]))
+        # --- HIỂN THỊ CHỈ SỐ (APPLE METRICS) ---
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Tổng thiết bị", len(filtered_df))
+        m2.metric("Đang sử dụng", len(filtered_df[filtered_df['status'] == 'Đang sử dụng']))
+        
+        # Thống kê bảo trì: Tính những máy có last_maintenance quá 6 tháng hoặc có cảnh báo
+        m3.metric("Cần bảo trì", len(filtered_df[filtered_df['recommendations'].str.contains("💡|⚠️", na=False)]))
+        
+        # Thống kê bản quyền: Quét trong software_list (JSONB)
+        def count_software(df_input, keyword):
+            count = 0
+            for soft_list in df_input['software_list']:
+                if isinstance(soft_list, list):
+                    if any(keyword.lower() in str(s).lower() for s in soft_list):
+                        count += 1
+            return count
 
-        # --- BIỂU ĐỒ ---
+        win_count = count_software(filtered_df, "Windows")
+        m4.metric("Bản quyền OS", f"{win_count} máy")
+
+        st.divider()
+
+        # --- BIỂU ĐỒ TRỰC QUAN ---
         c_chart1, c_chart2 = st.columns(2)
         with c_chart1:
-            fig1 = px.pie(filtered_df, names='type', title="Cơ cấu loại thiết bị", hole=0.4)
+            # Biểu đồ cơ cấu thiết bị
+            fig1 = px.pie(filtered_df, names='type', title="<b>Cơ cấu loại thiết bị</b>", 
+                          hole=0.5, color_discrete_sequence=px.colors.qualitative.Pastel)
+            fig1.update_layout(showlegend=True, margin=dict(t=40, b=0, l=0, r=0))
             st.plotly_chart(fig1, use_container_width=True)
-        with c_chart2:
-            fig2 = px.bar(filtered_df.groupby('branch').size().reset_index(name='Số lượng'), 
-                         x='branch', y='Số lượng', color='branch', title="Phân bổ theo Chi nhánh")
-            st.plotly_chart(fig2, use_container_width=True)
-            
-        # Hiển thị bảng dữ liệu chi tiết bên dưới
-        if st.checkbox("Xem danh sách chi tiết"):
-            st.dataframe(filtered_df[['asset_tag', 'type', 'assigned_to_code', 'department', 'branch', 'recommendations']])
-    else:
-        st.info("Chưa có dữ liệu tài sản để thống kê.")
 
+        with c_chart2:
+            # Biểu đồ phân bổ theo chi nhánh
+            branch_stats = filtered_df.groupby('branch').size().reset_index(name='Số lượng')
+            fig2 = px.bar(branch_stats, x='branch', y='Số lượng', color='branch',
+                          title="<b>Phân bổ theo Chi nhánh</b>", text_auto=True,
+                          color_discrete_sequence=px.colors.qualitative.Safe)
+            fig2.update_layout(xaxis_title="", yaxis_title="Số máy", showlegend=False)
+            st.plotly_chart(fig2, use_container_width=True)
+
+        # --- THỐNG KÊ BẢN QUYỀN & GIẤY PHÉP ---
+        st.subheader("🔐 Quản lý Bản quyền & Phần mềm")
+        l_col1, l_col2 = st.columns([2, 1])
+        
+        with l_col1:
+            # Biểu đồ đếm các phần mềm phổ biến
+            soft_metrics = {
+                "Windows": win_count,
+                "Office/M365": count_software(filtered_df, "Office"),
+                "Adobe": count_software(filtered_df, "Adobe"),
+                "AutoCAD": count_software(filtered_df, "AutoCAD")
+            }
+            df_soft = pd.DataFrame(list(soft_metrics.items()), columns=['Phần mềm', 'Số lượng'])
+            fig_soft = px.bar(df_soft, y='Phần mềm', x='Số lượng', orientation='h', 
+                              title="Độ phủ bản quyền phần mềm", text_auto=True,
+                              color='Phần mềm', color_discrete_sequence=px.colors.sequential.Aggrnyl)
+            st.plotly_chart(fig_soft, use_container_width=True)
+
+        with l_col2:
+            # Danh sách Key từ bảng Licenses (Sơ đồ DB)
+            if lic_res.data:
+                st.write("**Key sắp hết hạn (Bảng Licenses)**")
+                df_lic = pd.DataFrame(lic_res.data)
+                # Chỉ hiển thị các license quan trọng
+                st.dataframe(df_lic[['name', 'expiry_date']].sort_values(by='expiry_date'), 
+                             hide_index=True, use_container_width=True)
+
+        # --- BẢNG DỮ LIỆU CHI TIẾT ---
+        st.divider()
+        if st.checkbox("🔍 Hiển thị bảng dữ liệu chi tiết"):
+            st.write("### Danh sách tài sản đã lọc")
+            # Định dạng lại bảng cho dễ nhìn
+            display_df = filtered_df[['asset_tag', 'type', 'staff_name', 'department', 'branch', 'status', 'purchase_date']]
+            display_df.columns = ['Mã máy', 'Loại', 'Người giữ', 'Phòng ban', 'Chi nhánh', 'Trạng thái', 'Ngày mua']
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    else:
+        st.info("👋 Chào bạn! Hệ thống chưa có dữ liệu tài sản. Hãy qua Tab 1 để nhập liệu nhé.")
 # --- TAB 1: NHÂN VIÊN & CẤP PHÁT ---
 with tabs[1]:
     st.title("👤 Nhân sự & Thiết bị")
@@ -160,12 +217,52 @@ with tabs[1]:
                     st.error(f"Lỗi thêm thiết bị: {e}")
 
     # --- BƯỚC 3: DANH SÁCH THIẾT BỊ ĐANG DÙNG ---
-    if exists:
-        st.markdown(f"#### 🖥️ Danh sách tài sản của {e_code}")
-        assets_res = supabase.table("assets").select("*").eq("assigned_to_code", e_code).execute()
-        if assets_res.data:
-            df_assets = pd.DataFrame(assets_res.data)
-            st.dataframe(df_assets[['asset_tag', 'type', 'purchase_date', 'status']], use_container_width=True)
+    # --- BỔ SUNG VÀO CUỐI TAB 1 ---
+if exists:
+    st.markdown("---")
+    st.subheader("🛠️ Nhật ký Bảo trì & Sửa chữa")
+    
+    # Lấy danh sách mã máy của nhân viên này để chọn
+    user_asset_tags = [a['asset_tag'] for a in as_res.data] if as_res.data else []
+    
+    if user_asset_tags:
+        with st.form("maintenance_form_apple"):
+            c1, c2 = st.columns(2)
+            selected_tag = c1.selectbox("Chọn thiết bị", user_asset_tags)
+            action_type = c2.selectbox("Loại tác động", ["Sửa chữa", "Thay linh kiện", "Bảo trì định kỳ", "Nâng cấp"])
+            
+            # Tìm asset_id từ asset_tag để lưu vào bảng maintenance_log
+            selected_asset = next(a for a in as_res.data if a['asset_tag'] == selected_tag)
+            
+            desc = st.text_area("Chi tiết nội dung (VD: Thay SSD Samsung 500GB, nâng RAM 16GB...)")
+            m_date = st.date_input("Ngày thực hiện")
+
+            if st.form_submit_button("💾 Lưu nhật ký"):
+                try:
+                    supabase.table("maintenance_log").insert({
+                        "asset_id": selected_asset['id'],
+                        "action_type": action_type,
+                        "description": desc,
+                        "performed_at": str(m_date)
+                    }).execute()
+                    
+                    # Cập nhật ngày bảo trì cuối cùng vào bảng assets
+                    supabase.table("assets").update({"last_maintenance": str(m_date)}).eq("id", selected_asset['id']).execute()
+                    
+                    st.success(f"Đã lưu lịch sử cho {selected_tag}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Lỗi: {e}")
+
+        # Hiển thị lịch sử cũ
+        st.write("📋 Lịch sử gần đây:")
+        log_res = supabase.table("maintenance_log").select("*").in_("asset_id", [a['id'] for a in as_res.data]).order("performed_at", desc=True).execute()
+        if log_res.data:
+            df_logs = pd.DataFrame(log_res.data)
+            st.table(df_logs[['performed_at', 'action_type', 'description']])
+    else:
+        st.info("Nhân viên này chưa có thiết bị để ghi nhận bảo trì.")
+    
 # --- TAB 2: MÁY CHỦ (SERVER) ---
 with tabs[2]:
     st.title("🖥️ Hệ thống Máy chủ")
