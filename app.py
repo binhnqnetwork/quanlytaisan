@@ -72,89 +72,95 @@ with tabs[0]:
 
 # --- TAB 1: THIẾT BI & NHÂN VIÊN (NÂNG CẤP) ---
 with tabs[1]:
-    st.subheader("👥 Quản lý Nhân sự & Cấp phát Tài sản")
+    st.subheader("👥 Quản lý Nhân viên & Cấp phát")
     
-    location_map = {"Nhà máy Long An": 1, "Chi nhánh TP.HCM": 2, "Đà Nẵng": 3, "Miền Bắc": 4, "Polypack": 5}
+    # Map địa điểm
+    loc_map = {"Nhà máy Long An": 1, "TP.HCM": 2, "Đà Nẵng": 3, "Miền Bắc": 4, "Polypack": 5}
 
-    # --- BƯỚC 1: NHẬN DIỆN MÃ NHÂN VIÊN ---
-    st.markdown("### 🔍 1. Nhận diện & Chỉnh sửa Nhân viên")
-    emp_code_input = st.text_input("Nhập Mã nhân viên (Key chính)", placeholder="VD: NV001").strip()
+    # --- BƯỚC 1: TRA CỨU / NHẬP MÃ NV ---
+    st.markdown("### 🔍 1. Nhận diện nhân sự")
+    e_code = st.text_input("Nhập Mã nhân viên", placeholder="VD: NV001").strip()
     
-    # Khởi tạo dữ liệu trống
-    current_staff = {"full_name": "", "department": "", "branch": "Nhà máy Long An", "is_active": True}
-    is_new = True
+    # Biến tạm để chứa dữ liệu
+    st_data = {"full_name": "", "department": "", "branch": "Nhà máy Long An", "is_active": True}
+    exists = False
 
-    if emp_code_input:
-        res = supabase.table("staff").select("*").eq("employee_code", emp_code_input).execute()
+    if e_code:
+        res = supabase.table("staff").select("*").eq("employee_code", e_code).execute()
         if res.data:
-            current_staff = res.data[0]
-            is_new = False
-            if not current_staff.get('is_active', True):
-                st.warning(f"⚠️ Nhân viên {current_staff['full_name']} đã NGHỈ VIỆC.")
+            st_data = res.data[0]
+            exists = True
+            if not st_data.get('is_active', True):
+                st.warning("⚠️ Nhân viên này đã nghỉ việc (Inactive).")
             else:
-                st.success(f"✅ Đang quản lý hồ sơ: {current_staff['full_name']}")
+                st.success(f"✅ Đang sửa hồ sơ: {st_data['full_name']}")
 
-    # --- FORM QUẢN LÝ NHÂN VIÊN ---
-    with st.form("staff_pro_form"):
+    # --- FORM NHÂN VIÊN ---
+    with st.form("staff_pro_v4"):
         c1, c2, c3 = st.columns(3)
-        name = c1.text_input("Họ và Tên", value=current_staff["full_name"])
-        dept = c2.text_input("Bộ phận", value=current_staff.get("department", ""))
+        f_name = c1.text_input("Họ và Tên", value=st_data["full_name"])
+        f_dept = c2.text_input("Bộ phận", value=st_data.get("department", ""))
+        f_branch = c3.selectbox("Chi nhánh", list(loc_map.keys()), 
+                               index=list(loc_map.keys()).index(st_data.get("branch", "Nhà máy Long An")))
         
-        b_list = list(location_map.keys())
-        b_idx = b_list.index(current_staff.get("branch", "Nhà máy Long An")) if current_staff.get("branch") in b_list else 0
-        branch = c3.selectbox("Chi nhánh", b_list, index=b_idx)
-        
-        btn_save, btn_off = st.columns(2)
-        
-        if btn_save.form_submit_button("💾 Lưu / Cập nhật"):
-            if emp_code_input and name:
+        col_s1, col_s2 = st.columns(2)
+        if col_s1.form_submit_button("💾 Lưu / Cập nhật"):
+            if e_code and f_name:
                 supabase.table("staff").upsert({
-                    "employee_code": emp_code_input,
-                    "full_name": name,
-                    "department": dept,
-                    "branch": branch,
-                    "is_active": True # Tự động kích hoạt lại nếu có chỉnh sửa
+                    "employee_code": e_code, "full_name": f_name, 
+                    "department": f_dept, "branch": f_branch, "is_active": True
                 }).execute()
-                st.success("Đã cập nhật dữ liệu nhân viên!")
+                st.success("Đã cập nhật nhân viên!")
                 st.rerun()
 
-        if not is_new and btn_off.form_submit_button("🗑️ Đánh dấu Nghỉ việc"):
-            supabase.table("staff").update({"is_active": False}).eq("employee_code", emp_code_input).execute()
-            st.warning("Đã chuyển trạng thái nhân viên sang Inactive.")
+        if exists and col_s2.form_submit_button("🗑️ Đánh dấu Nghỉ việc"):
+            supabase.table("staff").update({"is_active": False}).eq("employee_code", e_code).execute()
+            st.warning("Đã chuyển trạng thái Nghỉ việc.")
             st.rerun()
 
-    # --- BƯỚC 2: CẤP THIẾT BỊ (Chỉ hiện cho nhân viên đang làm việc) ---
-    if emp_code_input and not is_new and current_staff.get('is_active', True):
+    # --- BƯỚC 2: CẤP THIẾT BỊ ---
+    if e_code and exists and st_data.get('is_active', True):
         st.divider()
-        st.subheader(f"📦 Cấp tài sản mới cho {name}")
-        with st.form("asset_assign"):
-            col_a, col_b, col_c = st.columns(3)
-            a_type = col_a.selectbox("Loại", ["PC", "LT", "MN", "PR"])
-            a_num = col_b.text_input("Số thứ tự (VD: 0001)")
-            a_tag = f"{a_type}{a_num}"
+        st.subheader(f"📦 Cấp tài sản cho {f_name}")
+        with st.form("asset_pro_v4"):
+            a1, a2, a3 = st.columns(3)
+            a_type = a1.selectbox("Loại", ["PC", "LT", "MN", "PR"])
+            a_id = a2.text_input("Số thứ tự (VD: 0001)")
+            a_date = a3.date_input("Ngày cấp")
             
-            p_date = col_c.date_input("Ngày cấp")
-            specs = st.text_input("Cấu hình chi tiết")
+            a_tag = f"{a_type}{a_id}"
+            a_specs = st.text_input("Cấu hình chi tiết")
+            a_softs = st.text_area("Danh sách phần mềm (cách nhau bằng dấu phẩy)")
             
             if st.form_submit_button("🚀 Xác nhận cấp phát"):
+                # CHÚ Ý: Chuyển text thành List để khớp với JSONB trong SQL
+                soft_list = [s.strip() for s in a_softs.split(",") if s.strip()]
+                
                 try:
-                    supabase.table("assets").insert({
-                        "asset_tag": a_tag, "type": a_type, "assigned_to_code": emp_code_input,
-                        "location_id": location_map[branch], "purchase_date": str(p_date),
-                        "specs": {"detail": specs}, "recommendations": "Bảo trì sau 6 tháng"
+                    supabase.table("assets").upsert({
+                        "asset_tag": a_tag,
+                        "type": a_type,
+                        "assigned_to_code": e_code,
+                        "location_id": loc_map[f_branch],
+                        "purchase_date": str(a_date),
+                        "specs": {"detail": a_specs},
+                        "software_list": soft_list,
+                        "recommendations": "💡 Bảo trì sau 6 tháng" if a_type in ["PC", "LT"] else "Ổn định"
                     }).execute()
                     st.success(f"Đã cấp mã {a_tag} thành công!")
+                    st.rerun()
                 except Exception as e:
-                    st.error(f"Lỗi cấp tài sản: {e}")
+                    st.error(f"Lỗi: {e}")
 
-    # --- BƯỚC 3: DANH SÁCH TÀI SẢN ĐANG GIỮ ---
-    if not is_new:
-        st.markdown(f"#### 🖥️ Tài sản {name} đang quản lý")
-        assets_res = supabase.table("assets").select("*").eq("assigned_to_code", emp_code_input).execute()
-        if assets_res.data:
-            st.table(pd.DataFrame(assets_res.data)[['asset_tag', 'type', 'purchase_date']])
-        else:
-            st.info("Chưa có tài sản nào được gán.")
+    # --- BƯỚC 3: DANH SÁCH THIẾT BỊ ĐANG DÙNG ---
+    if exists:
+        st.markdown(f"#### 🖥️ Tài sản hiện có của {f_name}")
+        as_res = supabase.table("assets").select("*").eq("assigned_to_code", e_code).execute()
+        if as_res.data:
+            df_view = pd.DataFrame(as_res.data)
+            # Hiển thị danh sách phần mềm đẹp hơn
+            df_view['Phần mềm'] = df_view['software_list'].apply(lambda x: ", ".join(x) if isinstance(x, list) else x)
+            st.dataframe(df_view[['asset_tag', 'type', 'purchase_date', 'Phần mềm']], use_container_width=True)
 # --- TAB 2: MÁY CHỦ (Quản lý cấu hình JSON) ---
 with tabs[2]:
     st.subheader("🖥️ Quản lý Máy chủ")
