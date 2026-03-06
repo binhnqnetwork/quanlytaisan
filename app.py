@@ -70,19 +70,15 @@ with tabs[0]:
     else:
         st.info("Chưa có dữ liệu tài sản để thống kê.")
 
-# --- TAB 1: THIẾT BI & NHÂN VIÊN (NÂNG CẤP) ---
+# --- TAB 1: NHÂN VIÊN & CẤP PHÁT ---
 with tabs[1]:
-    st.subheader("👥 Quản lý Nhân viên & Cấp phát")
-    
-    # Map địa điểm chuẩn
+    st.title("👤 Nhân sự & Tài sản")
     loc_map = {"Nhà máy Long An": 1, "TP.HCM": 2, "Đà Nẵng": 3, "Miền Bắc": 4, "Polypack": 5}
     branch_list = list(loc_map.keys())
 
-    # --- BƯỚC 1: TRA CỨU / NHẬP MÃ NV ---
-    st.markdown("### 🔍 1. Nhận diện nhân sự")
-    e_code = st.text_input("Nhập Mã nhân viên", placeholder="VD: NV001").strip()
+    # Tra cứu thông minh
+    e_code = st.text_input("Mã nhân viên", placeholder="VD: NV001").strip().upper()
     
-    # Khởi tạo dữ liệu mặc định an toàn
     st_data = {"full_name": "", "department": "", "branch": "Nhà máy Long An", "is_active": True}
     exists = False
 
@@ -92,94 +88,126 @@ with tabs[1]:
             st_data = res.data[0]
             exists = True
             if not st_data.get('is_active', True):
-                st.warning("⚠️ Nhân viên này đã nghỉ việc (Inactive).")
+                st.warning("Trạng thái: Đã nghỉ việc")
             else:
-                st.success(f"✅ Đang quản lý hồ sơ: {st_data['full_name']}")
+                st.success(f"Hồ sơ: {st_data['full_name']}")
 
-    # --- FORM NHÂN VIÊN ---
-    with st.form("staff_pro_v5"):
-        c1, c2, c3 = st.columns(3)
-        f_name = c1.text_input("Họ và Tên", value=st_data.get("full_name", ""))
-        f_dept = c2.text_input("Bộ phận", value=st_data.get("department", ""))
-        
-        # SỬA LỖI VALUEERROR: Kiểm tra nếu branch trong DB có trong list không
-        db_branch = st_data.get("branch", "Nhà máy Long An")
-        try:
-            default_idx = branch_list.index(db_branch)
-        except ValueError:
-            default_idx = 0 # Nếu không thấy thì mặc định chọn cái đầu tiên
+    # Form Nhân viên - Thiết kế tối giản
+    with st.expander("Sửa đổi thông tin nhân sự", expanded=not exists):
+        with st.form("staff_form_apple"):
+            c1, c2, c3 = st.columns(3)
+            f_name = c1.text_input("Họ và Tên", value=st_data.get("full_name", ""))
+            f_dept = c2.text_input("Phòng ban", value=st_data.get("department", ""))
             
-        f_branch = c3.selectbox("Chi nhánh", branch_list, index=default_idx)
-        
-        # Nút Submit (Phải nằm trong st.form)
-        col_s1, col_s2 = st.columns(2)
-        btn_save = col_s1.form_submit_button("💾 Lưu / Cập nhật")
-        btn_off = col_s2.form_submit_button("🗑️ Đánh dấu Nghỉ việc")
-
-        if btn_save:
-            if e_code and f_name:
-                supabase.table("staff").upsert({
-                    "employee_code": e_code, "full_name": f_name, 
-                    "department": f_dept, "branch": f_branch, "is_active": True
-                }).execute()
-                st.success("Đã cập nhật nhân viên!")
-                st.rerun()
-            else:
-                st.error("Vui lòng điền đủ Mã và Tên nhân viên.")
-
-        if exists and btn_off:
-            supabase.table("staff").update({"is_active": False}).eq("employee_code", e_code).execute()
-            st.warning("Đã chuyển trạng thái Nghỉ việc.")
-            st.rerun()
-
-    # --- BƯỚC 2: CẤP THIẾT BỊ ---
-    if e_code and exists and st_data.get('is_active', True):
-        st.divider()
-        st.subheader(f"📦 Cấp tài sản cho {f_name}")
-        with st.form("asset_pro_final_fix"):
-            a1, a2, a3 = st.columns(3)
-            a_type = a1.selectbox("Loại", ["PC", "LT", "MN", "PR"])
-            a_id = a2.text_input("Số thứ tự (VD: 0001)")
-            a_date = a3.date_input("Ngày cấp")
+            db_branch = st_data.get("branch", "Nhà máy Long An")
+            default_idx = branch_list.index(db_branch) if db_branch in branch_list else 0
+            f_branch = c3.selectbox("Chi nhánh", branch_list, index=default_idx)
             
-            a_tag = f"{a_type}{a_id}"
-            a_specs = st.text_input("Cấu hình (CPU, RAM...)")
-            a_softs = st.text_area("Phần mềm (cách nhau bởi dấu phẩy)")
-            
-            btn_asset = st.form_submit_button("🚀 Xác nhận cấp phát")
-            
-            if btn_asset:
-                # CHUẨN HÓA DỮ LIỆU TRƯỚC KHI GỬI
-                soft_list = [s.strip() for s in a_softs.split(",") if s.strip()]
-                
-                payload = {
-                    "asset_tag": a_tag,
-                    "type": a_type,
-                    "assigned_to_code": e_code,
-                    "location_id": loc_map.get(f_branch, 1),
-                    "purchase_date": str(a_date),
-                    "specs": {"detail": a_specs}, # Gửi dưới dạng Dict cho JSONB
-                    "software_list": soft_list,     # Gửi dưới dạng List cho JSONB
-                    "recommendations": "💡 Bảo trì sau 6 tháng" if a_type in ["PC", "LT"] else "Ổn định"
-                }
-                
-                try:
-                    # Dùng upsert thay vì insert để tránh lỗi trùng khóa chính (Duplicate Key)
-                    supabase.table("assets").upsert(payload).execute()
-                    st.success(f"🎉 Đã cấp mã {a_tag} thành công!")
+            # Action Buttons
+            col_b1, col_b2, _ = st.columns([1, 1, 2])
+            if col_b1.form_submit_button("💾 Cập nhật"):
+                if e_code and f_name:
+                    supabase.table("staff").upsert({
+                        "employee_code": e_code, "full_name": f_name, 
+                        "department": f_dept, "branch": f_branch, "is_active": True
+                    }).execute()
                     st.rerun()
-                except Exception as e:
-                    # HIỂN THỊ LỖI THẬT SỰ TẠI ĐÂY
-                    st.error("❌ Lỗi Database chi tiết:")
-                    st.code(str(e))
 
-    # --- BƯỚC 3: HIỂN THỊ DƯỚI DẠNG DANH SÁCH ---
+            if exists and col_b2.form_submit_button("🗑️ Nghỉ việc"):
+                supabase.table("staff").update({"is_active": False}).eq("employee_code", e_code).execute()
+                st.rerun()
+
+    # Cấp phát thiết bị
+    if e_code and exists and st_data.get('is_active', True):
+        st.markdown("---")
+        with st.expander("➕ Cấp thiết bị mới", expanded=False):
+            with st.form("asset_assignment_apple"):
+                a1, a2, a3 = st.columns(3)
+                a_type = a1.selectbox("Loại", ["PC", "LT", "MN", "PR"])
+                a_id = a2.text_input("Số thứ tự (4 số)", placeholder="0001")
+                a_date = a3.date_input("Ngày cấp")
+                
+                a_specs = st.text_input("Cấu hình tóm tắt")
+                a_softs = st.text_area("Phần mềm (cách nhau bằng dấu phẩy)")
+                
+                if st.form_submit_button("Xác nhận bàn giao"):
+                    a_tag = f"{a_type}{a_id}"
+                    soft_list = [s.strip() for s in a_softs.split(",") if s.strip()]
+                    payload = {
+                        "asset_tag": a_tag, "type": a_type, "assigned_to_code": e_code,
+                        "location_id": loc_map.get(f_branch, 1), "purchase_date": str(a_date),
+                        "specs": {"detail": a_specs}, "software_list": soft_list,
+                        "recommendations": "💡 Bảo trì định kỳ 6 tháng"
+                    }
+                    try:
+                        supabase.table("assets").upsert(payload).execute()
+                        st.success(f"Đã bàn giao {a_tag}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Lỗi: {e}")
+
+    # Danh sách thiết bị hiện có
     if exists:
-        st.markdown(f"#### 🖥️ Tài sản hiện có của {f_name}")
+        st.markdown("#### Thiết bị đang sở hữu")
         as_res = supabase.table("assets").select("*").eq("assigned_to_code", e_code).execute()
         if as_res.data:
             df_view = pd.DataFrame(as_res.data)
             st.dataframe(df_view[['asset_tag', 'type', 'purchase_date', 'recommendations']], use_container_width=True)
+
+# --- TAB 2: MÁY CHỦ (SERVER) ---
+with tabs[2]:
+    st.title("🖥️ Hệ thống Máy chủ")
+    
+    # 1. Thêm Server mới với cấu hình JSON linh hoạt
+    with st.expander("🛠️ Đăng ký Server mới", expanded=False):
+        with st.form("server_registration"):
+            sv_tag = st.text_input("Mã Server (VD: SRV-01)").upper()
+            sv_ip = st.text_input("Địa chỉ IP (Quản lý)")
+            sv_role = st.selectbox("Vai trò", ["Database", "Web Server", "App Server", "AD/DNS", "Storage"])
+            
+            st.write("Cấu hình chi tiết (JSON)")
+            # Mẫu JSON mặc định cho người dùng dễ nhập
+            default_json = {
+                "CPU": "8 Cores",
+                "RAM": "32GB",
+                "OS": "Ubuntu 22.04 LTS",
+                "Storage": "500GB SSD"
+            }
+            sv_specs_json = st.text_area("Chỉnh sửa cấu hình", value=json.dumps(default_json, indent=4))
+            
+            if st.form_submit_button("Lưu cấu hình Server"):
+                try:
+                    parsed_specs = json.loads(sv_specs_json)
+                    supabase.table("assets").upsert({
+                        "asset_tag": sv_tag,
+                        "type": "Server",
+                        "specs": {"ip": sv_ip, "role": sv_role, "hardware": parsed_specs},
+                        "recommendations": "⚠️ Kiểm tra Backup hàng ngày"
+                    }).execute()
+                    st.success(f"Đã lưu thông tin {sv_tag}")
+                except Exception as e:
+                    st.error(f"Lỗi định dạng JSON hoặc Database: {e}")
+
+    # 2. Hiển thị danh sách Server dưới dạng Card Apple Style
+    st.markdown("### Danh sách Server")
+    sv_res = supabase.table("assets").select("*").eq("type", "Server").execute()
+    
+    if sv_res.data:
+        for sv in sv_res.data:
+            with st.container():
+                # Thiết kế UI kiểu Card
+                col_i1, col_i2 = st.columns([1, 3])
+                with col_i1:
+                    st.metric("ID", sv['asset_tag'])
+                with col_i2:
+                    st.write(f"**Vai trò:** {sv['specs'].get('role', 'N/A')} | **IP:** {sv['specs'].get('ip', 'N/A')}")
+                    # Hiển thị cấu hình bên trong JSON
+                    hw = sv['specs'].get('hardware', {})
+                    details = " • ".join([f"{k}: {v}" for k, v in hw.items()])
+                    st.caption(details)
+                st.markdown("---")
+    else:
+        st.info("Chưa có máy chủ nào được đăng ký.")
 # --- TAB 2: MÁY CHỦ (Quản lý cấu hình JSON) ---
 with tabs[2]:
     st.subheader("🖥️ Quản lý Máy chủ")
