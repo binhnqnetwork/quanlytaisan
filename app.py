@@ -136,36 +136,42 @@ with tabs[1]:
     if e_code and exists and st_data.get('is_active', True):
         st.divider()
         st.subheader(f"📦 Cấp tài sản cho {f_name}")
-        with st.form("asset_pro_v5"):
+        with st.form("asset_pro_final_fix"):
             a1, a2, a3 = st.columns(3)
             a_type = a1.selectbox("Loại", ["PC", "LT", "MN", "PR"])
             a_id = a2.text_input("Số thứ tự (VD: 0001)")
             a_date = a3.date_input("Ngày cấp")
             
             a_tag = f"{a_type}{a_id}"
-            a_specs = st.text_input("Cấu hình chi tiết")
-            a_softs = st.text_area("Danh sách phần mềm (cách nhau bằng dấu phẩy)")
+            a_specs = st.text_input("Cấu hình (CPU, RAM...)")
+            a_softs = st.text_area("Phần mềm (cách nhau bởi dấu phẩy)")
             
-            # Nút Submit cho form Tài sản
             btn_asset = st.form_submit_button("🚀 Xác nhận cấp phát")
             
             if btn_asset:
+                # CHUẨN HÓA DỮ LIỆU TRƯỚC KHI GỬI
                 soft_list = [s.strip() for s in a_softs.split(",") if s.strip()]
+                
+                payload = {
+                    "asset_tag": a_tag,
+                    "type": a_type,
+                    "assigned_to_code": e_code,
+                    "location_id": loc_map.get(f_branch, 1),
+                    "purchase_date": str(a_date),
+                    "specs": {"detail": a_specs}, # Gửi dưới dạng Dict cho JSONB
+                    "software_list": soft_list,     # Gửi dưới dạng List cho JSONB
+                    "recommendations": "💡 Bảo trì sau 6 tháng" if a_type in ["PC", "LT"] else "Ổn định"
+                }
+                
                 try:
-                    supabase.table("assets").upsert({
-                        "asset_tag": a_tag,
-                        "type": a_type,
-                        "assigned_to_code": e_code,
-                        "location_id": loc_map[f_branch],
-                        "purchase_date": str(a_date),
-                        "specs": {"detail": a_specs},
-                        "software_list": soft_list,
-                        "recommendations": "💡 Bảo trì sau 6 tháng" if a_type in ["PC", "LT"] else "Ổn định"
-                    }).execute()
-                    st.success(f"Đã cấp mã {a_tag} thành công!")
+                    # Dùng upsert thay vì insert để tránh lỗi trùng khóa chính (Duplicate Key)
+                    supabase.table("assets").upsert(payload).execute()
+                    st.success(f"🎉 Đã cấp mã {a_tag} thành công!")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Lỗi: {e}")
+                    # HIỂN THỊ LỖI THẬT SỰ TẠI ĐÂY
+                    st.error("❌ Lỗi Database chi tiết:")
+                    st.code(str(e))
 
     # --- BƯỚC 3: HIỂN THỊ DƯỚI DẠNG DANH SÁCH ---
     if exists:
