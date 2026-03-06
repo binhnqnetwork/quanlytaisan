@@ -271,10 +271,8 @@ with tabs[2]:
             
             st.write("**Cấu hình chi tiết (JSON)**")
             default_json = {
-                "CPU": "16 Cores", 
-                "RAM": "64GB",
-                "OS": "Windows Server 2022", 
-                "Storage": "1TB NVMe",
+                "CPU": "16 Cores", "RAM": "64GB",
+                "OS": "Windows Server 2022", "Storage": "1TB NVMe",
                 "Environment": "Production"
             }
             sv_specs_json = st.text_area("Chỉnh sửa thông số phần cứng", value=json.dumps(default_json, indent=4), height=150)
@@ -283,22 +281,17 @@ with tabs[2]:
                 if sv_tag and sv_ip:
                     try:
                         parsed_specs = json.loads(sv_specs_json)
-                        # Lưu vào bảng assets theo Schema
                         supabase.table("assets").upsert({
                             "asset_tag": sv_tag,
                             "type": "Server",
                             "status": "Online",
-                            "specs": {
-                                "ip": sv_ip, 
-                                "role": sv_role, 
-                                "hardware": parsed_specs
-                            },
+                            "specs": {"ip": sv_ip, "role": sv_role, "hardware": parsed_specs},
                             "recommendations": "⚠️ Kiểm tra nhiệt độ và Backup hàng tuần"
                         }, on_conflict="asset_tag").execute()
                         st.success(f"✅ Đã đồng bộ dữ liệu Server {sv_tag}")
                         st.rerun()
                     except json.JSONDecodeError:
-                        st.error("❌ Lỗi định dạng JSON! Vui lòng kiểm tra dấu ngoặc.")
+                        st.error("❌ Lỗi định dạng JSON!")
                 else:
                     st.warning("Vui lòng nhập đầy đủ Mã Server và IP.")
 
@@ -306,89 +299,70 @@ with tabs[2]:
 
     # --- CHỨC NĂNG 2: MONITORING DASHBOARD ---
     st.subheader("📋 Trạng thái hạ tầng Real-time")
-    
-    # Truy vấn danh sách máy chủ từ Supabase
     sv_res = supabase.table("assets").select("*").eq("type", "Server").execute()
     
     if sv_res.data:
-        # Cấu trúc hiển thị dạng lưới (Grid) hoặc danh sách Card
         for sv in sv_res.data:
             with st.container(border=True):
                 col_status, col_info, col_action = st.columns([1.5, 4, 1.5])
-                
                 specs_data = sv.get('specs', {})
                 ip = specs_data.get('ip', 'N/A')
-                role = specs_data.get('role', 'N/A')
                 hw = specs_data.get('hardware', {})
                 
                 with col_status:
                     st.write(f"**{sv['asset_tag']}**")
-                    # Logic kiểm tra trạng thái Online sơ bộ
-                    if ip != 'N/A':
-                        st.success("🟢 Online")
-                    else:
-                        st.error("🔴 Offline")
-                    st.caption(f"📍 {role}")
+                    st.success("🟢 Online") if ip != 'N/A' else st.error("🔴 Offline")
+                    st.caption(f"📍 {specs_data.get('role', 'N/A')}")
                 
                 with col_info:
-                    st.write(f"**Quản lý IP:** `{ip}`")
-                    # Hiển thị cấu hình từ JSON specs
+                    st.write(f"**IP:** `{ip}`")
                     details = " • ".join([f"{k}: {v}" for k, v in hw.items()])
                     st.caption(f"⚙️ {details}")
-                    st.caption(f"📅 Bảo trì cuối: {sv.get('last_maintenance', 'Chưa có dữ liệu')}")
+                    st.caption(f"📅 Bảo trì cuối: {sv.get('last_maintenance', 'Chưa có')}")
 
                 with col_action:
-                    # Nút Log để mở form ghi chú bảo trì riêng cho Server này
                     if st.button("🛠️ Nhật ký", key=f"log_{sv['asset_tag']}"):
                         st.session_state['view_srv_log'] = sv['id']
                         st.session_state['view_srv_tag'] = sv['asset_tag']
 
-        # --- CHỨC NĂNG 3: NHẬT KÝ BẢO TRÌ (Xử lý Popup/Form) ---
+        # --- CHỨC NĂNG 3: FORM NHẬT KÝ BẢO TRÌ ---
         if 'view_srv_log' in st.session_state:
             st.divider()
             st.markdown(f"### 📔 Ghi chú bảo trì: {st.session_state['view_srv_tag']}")
             with st.form("srv_maint_form"):
                 m_type = st.selectbox("Loại tác động", ["Update OS", "Fix Bug", "Upgrade HW", "Backup Restore"])
                 m_desc = st.text_area("Nội dung chi tiết xử lý")
-                m_date = st.date_input("Ngày thực hiện")
+                m_date_input = st.date_input("Ngày thực hiện") # Đổi tên biến tránh trùng lặp
                 
                 c1, c2 = st.columns(2)
                 if c1.form_submit_button("💾 Lưu lịch sử"):
-                    # Thêm vào bảng maintenance_log theo Schema
                     supabase.table("maintenance_log").insert({
                         "asset_id": st.session_state['view_srv_log'],
                         "action_type": m_type,
                         "description": m_desc,
-                        "performed_at": str(m_date)
+                        "performed_at": str(m_date_input)
                     }).execute()
-                    
-                    # Cập nhật ngày bảo trì cuối cùng vào bảng assets
-                    supabase.table("assets").update({
-                        "last_maintenance": str(m_date)
-                    }).eq("id", st.session_state['view_srv_log']).execute()
-                    
-                    st.success("Đã ghi nhận lịch sử bảo trì.")
+                    supabase.table("assets").update({"last_maintenance": str(m_date_input)}).eq("id", st.session_state['view_srv_log']).execute()
+                    st.success("Đã lưu!")
                     del st.session_state['view_srv_log']
                     st.rerun()
-                
-                if c2.form_submit_button("❌ Hủy bỏ"):
+                if c2.form_submit_button("❌ Đóng"):
                     del st.session_state['view_srv_log']
                     st.rerun()
-    else:
-        st.info("Chưa có máy chủ nào được đăng ký trong hệ thống.")
 
-    # --- CHỨC NĂNG 4: XUẤT BÁO CÁO TỔNG HỢP ---
-    if sv_res.data:
+        # --- CHỨC NĂNG 4: XUẤT DỮ LIỆU (ĐÃ SỬA LỖI) ---
         st.divider()
-        with st.expander("📊 Xuất dữ liệu hạ tầng"):
-            df_export = pd.DataFrame(sv_res.data)
-            csv = df_export.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Tải danh sách Server (CSV)",
-                data=csv,
-                file_name=f"ha_tang_server_{m_date}.csv",
-                mime='text/csv',
-            )
+        today_str = datetime.now().strftime("%d-%m-%Y")
+        df_export = pd.DataFrame(sv_res.data)
+        csv = df_export.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Xuất danh sách Server (CSV)",
+            data=csv,
+            file_name=f"ha_tang_server_{today_str}.csv", # Sử dụng ngày hiện tại
+            mime='text/csv',
+        )
+    else:
+        st.info("Chưa có máy chủ nào được đăng ký.")
 # --- TAB 3: BẢN QUYỀN (Nhắc hẹn & Tìm kiếm) ---
 with tabs[3]:
     st.title("🔐 Bảo mật & Bản quyền phần mềm")
