@@ -71,24 +71,24 @@ VALUES
 ('Domain polypack.com.vn', '2026-03-25', 'PA Vietnam');
 # --- TAB 3: BẢN QUYỀN & NHẮC HẸN ---
 with tab3:
-    st.header("Theo dõi bản quyền & Domain")
-    
-    # Logic nhắc hẹn trước 1 tháng
-    today = datetime.now().date()
-    warning_period = today + timedelta(days=30)
-    
+    st.header("🌐 Bản quyền & Domain")
     res = supabase.table("licenses").select("*").execute()
+    
     if res.data:
-        df = pd.DataFrame(res.data)
-        df['expiry_date'] = pd.to_datetime(df['expiry_date']).dt.date
+        today = datetime.now().date()
+        deadline = today + timedelta(days=30)
         
-        # Highlight các dòng sắp hết hạn
-        def highlight_expiry(row):
-            if row['expiry_date'] <= warning_period:
-                return ['background-color: #ff4b4b'] * len(row)
-            return [''] * len(row)
+        for item in res.data:
+            exp_date = datetime.strptime(item['expiry_date'], "%Y-%m-%d").date()
+            days_diff = (exp_date - today).days
             
-        st.dataframe(df.style.apply(highlight_expiry, axis=1))
+            # Phân loại mức độ cảnh báo
+            if days_diff <= 0:
+                st.error(f"❌ {item['name']} - ĐÃ HẾT HẠN ({item['expiry_date']})")
+            elif days_diff <= 30:
+                st.warning(f"⚠️ {item['name']} - Sắp hết hạn trong {days_diff} ngày! ({item['expiry_date']})")
+            else:
+                st.success(f"✅ {item['name']} - Còn hạn đến {item['expiry_date']}")
 
 # --- TAB 4: BÍ MẬT (VAULT) ---
 with tab4:
