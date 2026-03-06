@@ -51,30 +51,24 @@ with tab1:
     except Exception as e:
         st.error(f"Lỗi truy vấn: {e}")
 
-with tab2:
-    st.header("🖥️ Quản lý Máy chủ & Phần mềm")
-    
-    # Lấy danh sách thiết bị là 'Server'
-    res = supabase.table("assets").select("*").eq("type", "Server").execute()
-    
-    if res.data:
-        for server in res.data:
-            with st.expander(f"📌 Server: {server['asset_tag']} - {server['status']}"):
-                col1, col2 = st.columns(2)
-                # Hiển thị cấu hình từ JSON
-                specs = server.get('specs', {})
-                col1.write(f"**CPU:** {specs.get('cpu', 'N/A')}")
-                col1.write(f"**RAM:** {specs.get('ram', 'N/A')}")
-                
-                col2.info(f"📅 **Bảo trì:** {server.get('last_maintenance', 'Chưa rõ')}")
-                
-                # Nút cập nhật nhanh (Enterprise style)
-                if st.button(f"Ghi nhận bảo trì cho {server['asset_tag']}", key=server['id']):
-                    today = datetime.now().strftime("%Y-%m-%d")
-                    supabase.table("assets").update({"last_maintenance": today}).eq("id", server['id']).execute()
-                    st.success("Đã cập nhật ngày bảo trì!")
-    else:
-        st.info("Chưa có máy chủ nào trong hệ thống.")
+-- Thêm nhân viên mẫu
+INSERT INTO staff (full_name, employee_code, location) 
+VALUES 
+('Nguyễn Văn A', 'NV001', 'Nhà máy Long An'),
+('Trần Thị B', 'NV002', 'Chi nhánh Thành phố');
+
+-- Thêm thiết bị mẫu (Chú ý cột type và specs)
+INSERT INTO assets (asset_tag, type, location_id, status, specs)
+VALUES 
+('SRV-001', 'Server', 2, 'Active', '{"cpu": "Xeon E-2300", "ram": "64GB", "os": "Ubuntu 22.04"}'),
+('SRV-002', 'Server', 1, 'Active', '{"cpu": "Core i9", "ram": "128GB", "os": "Windows Server 2022"}'),
+('LAP-001', 'Laptop', 1, 'Active', '{"cpu": "M2", "ram": "16GB", "os": "macOS"}');
+
+-- Thêm bản quyền mẫu để test Tab 3
+INSERT INTO licenses (name, expiry_date, provider)
+VALUES 
+('Office 365 Enterprise', '2026-04-01', 'Microsoft'),
+('Domain polypack.com.vn', '2026-03-25', 'PA Vietnam');
 # --- TAB 3: BẢN QUYỀN & NHẮC HẸN ---
 with tab3:
     st.header("Theo dõi bản quyền & Domain")
