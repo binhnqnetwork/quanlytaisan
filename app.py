@@ -156,75 +156,77 @@ with tabs[1]:
             st.dataframe(df_view[['asset_tag', 'type', 'purchase_date', 'recommendations']], use_container_width=True)
 
 # --- TAB 2: MÁY CHỦ (SERVER) ---
+# --- TAB 2: MÁY CHỦ (SERVER) ---
 with tabs[2]:
     st.title("🖥️ Hệ thống Máy chủ")
     
-    # 1. Thêm Server mới với cấu hình JSON linh hoạt
+    # 1. Đăng ký Server mới
     with st.expander("🛠️ Đăng ký Server mới", expanded=False):
         with st.form("server_registration"):
-            sv_tag = st.text_input("Mã Server (VD: SRV-01)").upper()
+            sv_tag = st.text_input("Mã Server (VD: SRV-01)").upper().strip()
             sv_ip = st.text_input("Địa chỉ IP (Quản lý)")
             sv_role = st.selectbox("Vai trò", ["Database", "Web Server", "App Server", "AD/DNS", "Storage"])
             
             st.write("Cấu hình chi tiết (JSON)")
-            # Mẫu JSON mặc định cho người dùng dễ nhập
+            # Cấu hình mẫu cho Server
             default_json = {
-                "CPU": "8 Cores",
-                "RAM": "32GB",
-                "OS": "Ubuntu 22.04 LTS",
-                "Storage": "500GB SSD"
+                "CPU": "16 Cores",
+                "RAM": "64GB",
+                "OS": "Windows Server 2022",
+                "Storage": "1TB NVMe"
             }
+            # Lỗi NameError biến mất sau khi bạn 'import json' ở đầu file
             sv_specs_json = st.text_area("Chỉnh sửa cấu hình", value=json.dumps(default_json, indent=4))
             
             if st.form_submit_button("Lưu cấu hình Server"):
-                try:
-                    parsed_specs = json.loads(sv_specs_json)
-                    supabase.table("assets").upsert({
-                        "asset_tag": sv_tag,
-                        "type": "Server",
-                        "specs": {"ip": sv_ip, "role": sv_role, "hardware": parsed_specs},
-                        "recommendations": "⚠️ Kiểm tra Backup hàng ngày"
-                    }).execute()
-                    st.success(f"Đã lưu thông tin {sv_tag}")
-                except Exception as e:
-                    st.error(f"Lỗi định dạng JSON hoặc Database: {e}")
+                if sv_tag:
+                    try:
+                        # Kiểm tra định dạng JSON người dùng nhập vào
+                        parsed_specs = json.loads(sv_specs_json)
+                        
+                        supabase.table("assets").upsert({
+                            "asset_tag": sv_tag,
+                            "type": "Server",
+                            "specs": {
+                                "ip": sv_ip, 
+                                "role": sv_role, 
+                                "hardware": parsed_specs
+                            },
+                            "recommendations": "⚠️ Kiểm tra nhiệt độ và Backup hàng tuần"
+                        }).execute()
+                        st.success(f"✅ Đã lưu thông tin máy chủ {sv_tag}")
+                        st.rerun()
+                    except json.JSONDecodeError:
+                        st.error("❌ Định dạng JSON không hợp lệ. Vui lòng kiểm tra lại dấu ngoặc và dấu phẩy.")
+                    except Exception as e:
+                        st.error(f"Lỗi: {e}")
+                else:
+                    st.warning("Vui lòng nhập Mã Server.")
 
-    # 2. Hiển thị danh sách Server dưới dạng Card Apple Style
-    st.markdown("### Danh sách Server")
+    # 2. Hiển thị danh sách Server dưới dạng Dashboard Card
+    st.markdown("### 📋 Danh sách máy chủ hiện có")
     sv_res = supabase.table("assets").select("*").eq("type", "Server").execute()
     
     if sv_res.data:
         for sv in sv_res.data:
             with st.container():
-                # Thiết kế UI kiểu Card
-                col_i1, col_i2 = st.columns([1, 3])
-                with col_i1:
-                    st.metric("ID", sv['asset_tag'])
-                with col_i2:
-                    st.write(f"**Vai trò:** {sv['specs'].get('role', 'N/A')} | **IP:** {sv['specs'].get('ip', 'N/A')}")
-                    # Hiển thị cấu hình bên trong JSON
-                    hw = sv['specs'].get('hardware', {})
+                c1, c2 = st.columns([1, 4])
+                with c1:
+                    st.info(f"🏷️ {sv['asset_tag']}")
+                with c2:
+                    # Lấy thông tin từ JSON specs an toàn
+                    specs_data = sv.get('specs', {})
+                    ip = specs_data.get('ip', 'N/A')
+                    role = specs_data.get('role', 'N/A')
+                    hw = specs_data.get('hardware', {})
+                    
+                    st.write(f"**Vai trò:** {role} | **IP:** `{ip}`")
+                    # Hiển thị thông số phần cứng từ JSON
                     details = " • ".join([f"{k}: {v}" for k, v in hw.items()])
-                    st.caption(details)
+                    st.caption(f"⚙️ {details}")
                 st.markdown("---")
     else:
-        st.info("Chưa có máy chủ nào được đăng ký.")
-# --- TAB 2: MÁY CHỦ (Quản lý cấu hình JSON) ---
-with tabs[2]:
-    st.subheader("🖥️ Quản lý Máy chủ")
-    with st.expander("➕ Cài đặt Server mới"):
-        with st.form("form_server"):
-            s_tag = st.text_input("Server Tag")
-            cpu = st.text_input("CPU")
-            ram = st.text_input("RAM")
-            if st.form_submit_button("Triển khai Server"):
-                specs = {"cpu": cpu, "ram": ram}
-                supabase.table("assets").insert({"asset_tag": s_tag, "type": "Server", "specs": specs, "location_id": 1}).execute()
-                st.rerun()
-    
-    search_srv = st.text_input("🔍 Tìm tên Server...")
-    srv_data = supabase.table("assets").select("*").eq("type", "Server").ilike("asset_tag", f"%{search_srv}%").execute().data
-    st.table(srv_data)
+        st.info("Chưa có máy chủ nào trong hệ thống.")
 
 # --- TAB 3: BẢN QUYỀN (Nhắc hẹn & Tìm kiếm) ---
 with tabs[3]:
