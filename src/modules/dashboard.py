@@ -98,38 +98,60 @@ def render_dashboard(supabase):
     else:
         st.info("👋 Chưa có dữ liệu tài sản để phân tích.")
 def render_usage_details(supabase):
-    st.subheader("👥 Danh sách Nhân sự & Phần mềm đang sử dụng")
-
+    st.subheader("👥 Truy xuất Chi tiết Cấp phát License & Nhân sự")
+    
     try:
-        # Lấy dữ liệu từ bảng assets (nơi lưu thông tin máy tính + người dùng + phần mềm cài đặt)
-        res = supabase.table("assets").select("asset_tag, assigned_to_code, department, software_list").execute()
+        # 1. Truy vấn dữ liệu liên kết từ bảng assets
+        # Lấy thêm thông tin Specs để hỗ trợ IT Support nhanh
+        res = supabase.table("assets").select("asset_tag, assigned_to_code, department, software_list, specs, type").execute()
         df_usage = pd.DataFrame(res.data)
 
         if not df_usage.empty:
-            # Làm sạch dữ liệu: Chỉ lấy những máy có phần mềm và có người dùng
-            df_usage = df_usage.dropna(subset=['software_list', 'assigned_to_code'])
-            
-            # Filter tìm kiếm nhanh
-            search = st.text_input("🔍 Tìm nhanh theo Tên phần mềm hoặc Mã nhân viên", placeholder="Ví dụ: Photoshop hoặc 3140...")
-            
-            if search:
-                # Tìm kiếm không phân biệt hoa thường trong cột phần mềm hoặc mã nhân viên
-                mask = df_usage['software_list'].str.contains(search, case=False, na=False) | \
-                       df_usage['assigned_to_code'].astype(str).str.contains(search, case=False)
-                df_usage = df_usage[mask]
+            # 2. Bộ lọc tìm kiếm (Search Bar) - Phong cách Apple
+            search_col1, search_col2 = st.columns([2, 1])
+            with search_col1:
+                search_term = st.text_input("🔍 Tìm kiếm theo Mã NV, Tên phần mềm hoặc Phòng ban...", placeholder="Ví dụ: Photoshop, 10438, Marketing...")
+            with search_col2:
+                filter_type = st.multiselect("Lọc loại thiết bị", options=df_usage['type'].unique(), default=df_usage['type'].unique())
 
-            # Hiển thị bảng rực rỡ
-            st.dataframe(
-                df_usage.rename(columns={
-                    'asset_tag': 'Mã máy',
-                    'assigned_to_code': 'Mã nhân viên',
-                    'department': 'Phòng ban',
-                    'software_list': 'Danh sách bản quyền'
-                }),
-                use_container_width=True
-            )
-        else:
-            st.info("Chưa có dữ liệu cấp phát phần mềm.")
+            # 3. Xử lý Logic tìm kiếm
+            df_display = df_usage[df_usage['type'].isin(filter_type)].copy()
             
+            if search_term:
+                # Tìm kiếm "mềm" (không phân biệt hoa thường) trên tất cả các cột quan trọng
+                mask = (
+                    df_display['assigned_to_code'].astype(str).str.contains(search_term, case=False) |
+                    df_display['software_list'].str.contains(search_term, case=False, na=False) |
+                    df_display['department'].str.contains(search_term, case=False, na=False) |
+                    df_display['asset_tag'].str.contains(search_term, case=False)
+                )
+                df_display = df_display[mask]
+
+            # 4. Hiển thị bảng dữ liệu rực rỡ
+            st.write(f"Tìm thấy **{len(df_display)}** kết quả phù hợp.")
+            
+            # Format lại bảng để chuyên nghiệp hơn
+            st.dataframe(
+                df_display.rename(columns={
+                    'asset_tag': 'Mã Máy',
+                    'assigned_to_code': 'Mã Nhân Viên',
+                    'department': 'Phòng Ban',
+                    'software_list': 'Bản quyền đang dùng',
+                    'specs': 'Cấu hình chi tiết',
+                    'type': 'Loại máy'
+                }),
+                use_container_width=True,
+                column_config={
+                    "Bản quyền đang dùng": st.column_config.TextColumn(width="large"),
+                    "Cấu hình chi tiết": st.column_config.TextColumn(width="medium")
+                }
+            )
+
+            # 5. Gợi ý hành động (Action Tool)
+            if not df_display.empty and search_term:
+                st.info(f"💡 Mẹo: Bạn đang xem danh sách phần mềm được cấp cho các nhân sự khớp với từ khóa '{search_term}'.")
+        else:
+            st.info("👋 Hệ thống chưa ghi nhận dữ liệu cấp phát. Hãy cập nhật cột 'software_list' trong tab Kho.")
+
     except Exception as e:
-        st.error(f"Lỗi khi tải chi tiết cấp phát: {e}")
+        st.error(f"❌ Lỗi truy xuất dữ liệu chi tiết: {e}")
