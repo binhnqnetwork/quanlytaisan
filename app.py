@@ -77,8 +77,8 @@ else:
     # Header ứng dụng
     col_logo, col_title = st.columns([1, 8])
     with col_title:
-        st.title("🚀 Enterprise Asset Management System")
-        st.caption(f"Hệ thống quản lý tài sản nội bộ | Phiên bản 2.0 | Ngày: {datetime.now().strftime('%d/%m/%Y')}")
+        st.title("🍊🍊🍊🍊 Quản lý tài sản 4 Oranges")
+        st.caption(f"Hệ thống quản lý tài sản nội bộ by IT 4 Oranges| Phiên bản 2.0 | Ngày: {datetime.now().strftime('%d/%m/%Y')}")
 
     # Khởi tạo Tabs bên trong khối ELSE để tránh lỗi NameError
     tabs = st.tabs([
