@@ -90,11 +90,18 @@ else:
     ])
 
     # Render nội dung từng Module
-    with tabs[0]:
-        try:
-            dashboard.render_dashboard(supabase)
-        except Exception as e:
-            st.error(f"Lỗi hiển thị Thống kê: {e}")
+    # ... (Giữ nguyên phần đầu cho đến tabs) ...
+
+# Render nội dung từng Module
+with tabs[0]:
+    try:
+        # Đảm bảo dashboard.py đã được cập nhật để nhận 6 giá trị
+        dashboard.render_dashboard(supabase)
+    except Exception as e:
+        st.error(f"❌ Lỗi Dashboard: {e}")
+        st.info("💡 Mẹo: Kiểm tra lại số lượng biến nhận từ hàm calculate_ai_metrics trong dashboard.py")
+
+# ... (Các tabs còn lại giữ nguyên) ...
 
     with tabs[1]:
         try:
