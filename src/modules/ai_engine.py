@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-def ai_engine(df_assets, df_maint, df_lic):
+def calculate_ai_metrics_v2(df_assets, df_maint, df_lic):
     # Khởi tạo các giá trị mặc định theo chuẩn Apple UI
     ai_metrics = {
         "mtbf": "N/A",
