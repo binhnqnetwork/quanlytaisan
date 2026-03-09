@@ -11,7 +11,13 @@ def render_servers(supabase):
         res_servers = supabase.table("assets").select("*").eq("type", "server").execute()
         df_servers = pd.DataFrame(res_servers.data) if res_servers.data else pd.DataFrame()
         
-        # Lấy danh sách chi nhánh để lọc (Dựa trên asset_tag: SV...-HCM, SV...-MB)
+        # Xử lý giá trị null cho ngày bảo trì để tránh lỗi hiển thị
+        if not df_servers.empty:
+            df_servers['last_maintenance'] = df_servers['last_maintenance'].fillna("Chưa có dữ liệu")
+            # Giả định cột license_expiry tồn tại, nếu không sẽ tạo dữ liệu giả để test
+            if 'license_expiry' not in df_servers.columns:
+                df_servers['license_expiry'] = None
+
         branch_options = ["Tất cả", "Miền Bắc (MB)", "TP. Hồ Chí Minh (HCM)", "Long An (LA)", "Đà Nẵng (DN)"]
         selected_branch = st.segmented_control("Chọn khu vực hạ tầng:", branch_options, default="Tất cả")
         
@@ -34,79 +40,100 @@ def render_servers(supabase):
         online_count = len(df_display[df_display['status'] == 'Đang sử dụng']) if not df_display.empty else 0
         st.metric("Đang vận hành", online_count)
     with c3:
-        # Giả định server cần bảo trì nếu chưa bảo trì > 180 ngày
-        st.metric("Cần kiểm tra", len(df_display[df_display['last_maintenance'].isna()]))
+        # Check các server sắp hết hạn license (trong vòng 30 ngày)
+        expiry_soon = 0
+        if not df_display.empty:
+            today = datetime.now().date()
+            valid_exp = pd.to_datetime(df_display['license_expiry']).dt.date.dropna()
+            expiry_soon = sum((valid_exp - today).apply(lambda x: x.days <= 30))
+        st.metric("Rủi ro License", expiry_soon, delta="Sắp hết hạn", delta_color="inverse")
 
-    # --- 3. DANH SÁCH CHI TIẾT & CẤP BẢN QUYỀN ---
+    # --- 3. THEO DÕI HẠN & CHI TIẾT ---
     st.markdown("---")
     if not df_display.empty:
         for _, server in df_display.iterrows():
+            # Tính toán màu sắc cảnh báo ngày hết hạn
+            status_color = "#8e8e93" # Mặc định xám
+            expiry_text = "Không có thông tin hạn"
+            
+            if server['license_expiry']:
+                exp_date = pd.to_datetime(server['license_expiry']).date()
+                days_left = (exp_date - datetime.now().date()).days
+                expiry_text = f"Hết hạn: {exp_date} ({days_left} ngày)"
+                if days_left <= 15: status_color = "#ff3b30" # Đỏ
+                elif days_left <= 45: status_color = "#ff9500" # Cam
+                else: status_color = "#34c759" # Xanh
+
             with st.container(border=True):
                 col_info, col_action = st.columns([3, 1])
                 
                 with col_info:
                     st.markdown(f"### 🛰️ {server['asset_tag']}")
-                    st.caption(f"Trạng thái: {server['status']} | Ngày nhập: {server['created_at'][:10]}")
-                    st.markdown(f"**Cấu hình:** `{server['specs'].get('note', 'N/A')}`")
+                    # Badge trạng thái hết hạn
+                    st.markdown(f'<span style="color:{status_color}; font-weight:600;">● {expiry_text}</span>', unsafe_allow_html=True)
+                    st.caption(f"Trạng thái: {server['status']} | Bảo trì lần cuối: {server['last_maintenance']}")
                     
-                    # Hiển thị các License hiện có trên Server
                     sw_list = server.get('software_list') or []
                     if sw_list:
-                        st.markdown("**Phần mềm đã cài:** " + " ".join([f"`{sw}`" for sw in sw_list]))
-                    else:
-                        st.markdown("*Chưa có bản quyền phần mềm nào được gán.*")
+                        st.markdown("**Bản quyền hiện có:** " + " ".join([f"`{sw}`" for sw in sw_list]))
 
                 with col_action:
-                    st.write("") # Spacer
-                    # Nút mở rộng để cấp bản quyền ngay tại chỗ
-                    with st.popover("➕ Cấp bản quyền", use_container_width=True):
-                        st.markdown(f"**Gán License cho {server['asset_tag']}**")
-                        # Lấy danh sách license còn trống
+                    st.write("") 
+                    with st.popover("➕ Cấp License", use_container_width=True):
+                        st.markdown(f"**Gán bản quyền cho {server['asset_tag']}**")
+                        # Fix lỗi remaining_qty bằng cách tính trực tiếp
                         res_lic = supabase.table("licenses").select("id, name, total_quantity, used_quantity").execute()
                         
                         if res_lic.data:
-                            lic_options = {f"{l['name']} (Còn {l['total_quantity']-l['used_quantity']})": l for l in res_lic.data}
+                            # Tính toán số lượng còn lại ngay trong code
+                            lic_options = {f"{l['name']} (Còn {l['total_quantity'] - l['used_quantity']})": l for l in res_lic.data}
                             pick_lic = st.selectbox("Chọn phần mềm", list(lic_options.keys()), key=f"lic_{server['id']}")
+                            exp_pick = st.date_input("Ngày hết hạn (nếu có)", key=f"exp_{server['id']}")
                             
-                            if st.button("Xác nhận cấp", key=f"btn_{server['id']}", type="primary"):
+                            if st.button("Xác nhận gán", key=f"btn_{server['id']}", type="primary"):
                                 selected_sw = lic_options[pick_lic]
-                                
-                                # 1. Cập nhật software_list của server
                                 current_sw = server.get('software_list') or []
+                                
                                 if selected_sw['name'] not in current_sw:
                                     current_sw.append(selected_sw['name'])
-                                    supabase.table("assets").update({"software_list": current_sw}).eq("id", server['id']).execute()
+                                    # Cập nhật cả software_list và ngày hết hạn
+                                    supabase.table("assets").update({
+                                        "software_list": current_sw,
+                                        "license_expiry": str(exp_pick)
+                                    }).eq("id", server['id']).execute()
                                     
-                                    # 2. Trừ số lượng trong bảng licenses
                                     supabase.table("licenses").update({
                                         "used_quantity": selected_sw['used_quantity'] + 1
                                     }).eq("id", selected_sw['id']).execute()
                                     
-                                    st.success(f"Đã gán {selected_sw['name']}!")
+                                    st.success("Đã cập nhật hệ thống!")
                                     st.rerun()
-                                else:
-                                    st.warning("Server này đã có bản quyền này.")
                         else:
-                            st.info("Không còn license trống.")
+                            st.info("Không còn license khả dụng.")
     else:
         st.info(f"Không tìm thấy máy chủ nào thuộc khu vực {selected_branch}.")
 
-    # --- 4. ADMIN: THÊM SERVER MỚI ---
-    with st.expander("📥 Thêm Máy chủ mới vào hệ thống"):
-        with st.form("add_server_form"):
-            c_id, c_br = st.columns(2)
-            s_id = c_id.text_input("Mã số Server (VD: 001)")
-            s_br = c_br.selectbox("Chi nhánh", ["MB", "HCM", "LA", "PP", "DN"])
-            s_spec = st.text_area("Thông số kỹ thuật (CPU, RAM, Storage, OS...)")
+    # --- 4. ADMIN: THÊM SERVER MỚI (FIXED CHECK CONSTRAINT) ---
+    with st.expander("📥 Nhập kho Máy chủ mới"):
+        with st.form("add_server_form_fixed"):
+            c1, c2 = st.columns(2)
+            s_id = c1.text_input("Mã số máy (VD: 005)")
+            s_br = c2.selectbox("Chi nhánh", ["MB", "HCM", "LA", "PP", "DN"])
+            s_spec = st.text_area("Cấu hình chi tiết")
             
-            if st.form_submit_button("Xác nhận nhập kho Server"):
+            if st.form_submit_button("Xác nhận nhập kho"):
                 if s_id:
+                    # FIX: Luôn sử dụng 'server' để khớp với check constraint của DB
                     new_tag = f"SV{s_id.strip().upper()}-{s_br}"
-                    supabase.table("assets").insert({
-                        "asset_tag": new_tag,
-                        "type": "server",
-                        "status": "Trong kho",
-                        "specs": {"note": s_spec}
-                    }).execute()
-                    st.toast(f"Đã thêm Server {new_tag}", icon="🚀")
-                    st.rerun()
+                    try:
+                        supabase.table("assets").insert({
+                            "asset_tag": new_tag,
+                            "type": "server", 
+                            "status": "Trong kho",
+                            "specs": {"note": s_spec},
+                            "created_at": datetime.now().isoformat()
+                        }).execute()
+                        st.success(f"Đã thêm {new_tag}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Lỗi Database: {e}")
