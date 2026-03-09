@@ -101,57 +101,60 @@ def render_usage_details(supabase):
     st.subheader("👥 Truy xuất Chi tiết Cấp phát License & Nhân sự")
     
     try:
-        # 1. Truy vấn dữ liệu liên kết từ bảng assets
-        # Lấy thêm thông tin Specs để hỗ trợ IT Support nhanh
-        res = supabase.table("assets").select("asset_tag, assigned_to_code, department, software_list, specs, type").execute()
+        # 1. TRUY VẤN: Bỏ cột 'department' bị lỗi, thêm các cột thực tế từ bảng của bạn
+        res = supabase.table("assets").select(
+            "asset_tag, assigned_to_code, software_list, specs, type, status"
+        ).execute()
         df_usage = pd.DataFrame(res.data)
 
         if not df_usage.empty:
-            # 2. Bộ lọc tìm kiếm (Search Bar) - Phong cách Apple
+            # 2. XỬ LÝ DỮ LIỆU THÔNG MINH (AI Heuristics)
+            # Tự tạo cột 'Vùng miền' bằng cách tách chữ cuối sau dấu gạch ngang (PC0001-HCM -> HCM)
+            df_usage['region'] = df_usage['asset_tag'].str.split('-').str[-1]
+            
+            # Làm sạch hiển thị software_list (từ list sang string để dễ nhìn)
+            df_usage['software_display'] = df_usage['software_list'].apply(
+                lambda x: ", ".join(x) if isinstance(x, list) and len(x) > 0 else "Trống"
+            )
+
+            # 3. BỘ LỌC TÌM KIẾM
             search_col1, search_col2 = st.columns([2, 1])
             with search_col1:
-                search_term = st.text_input("🔍 Tìm kiếm theo Mã NV, Tên phần mềm hoặc Phòng ban...", placeholder="Ví dụ: Photoshop, 10438, Marketing...")
+                search_term = st.text_input("🔍 Tìm theo Mã NV, Phần mềm (Photoshop, Office...)", placeholder="Ví dụ: 3140 hoặc Photoshop...")
             with search_col2:
-                filter_type = st.multiselect("Lọc loại thiết bị", options=df_usage['type'].unique(), default=df_usage['type'].unique())
+                region_filter = st.multiselect("Lọc theo Vùng miền", options=df_usage['region'].unique(), default=df_usage['region'].unique())
 
-            # 3. Xử lý Logic tìm kiếm
-            df_display = df_usage[df_usage['type'].isin(filter_type)].copy()
+            # 4. LOGIC LỌC
+            df_display = df_usage[df_usage['region'].isin(region_filter)].copy()
             
             if search_term:
-                # Tìm kiếm "mềm" (không phân biệt hoa thường) trên tất cả các cột quan trọng
                 mask = (
                     df_display['assigned_to_code'].astype(str).str.contains(search_term, case=False) |
-                    df_display['software_list'].str.contains(search_term, case=False, na=False) |
-                    df_display['department'].str.contains(search_term, case=False, na=False) |
+                    df_display['software_display'].str.contains(search_term, case=False) |
                     df_display['asset_tag'].str.contains(search_term, case=False)
                 )
                 df_display = df_display[mask]
 
-            # 4. Hiển thị bảng dữ liệu rực rỡ
-            st.write(f"Tìm thấy **{len(df_display)}** kết quả phù hợp.")
+            # 5. HIỂN THỊ BẢNG (Đã khớp 100% với DB của bạn)
+            st.write(f"Tìm thấy **{len(df_display)}** kết quả.")
             
-            # Format lại bảng để chuyên nghiệp hơn
             st.dataframe(
-                df_display.rename(columns={
+                df_display[[
+                    'asset_tag', 'assigned_to_code', 'region', 
+                    'software_display', 'specs', 'status'
+                ]].rename(columns={
                     'asset_tag': 'Mã Máy',
                     'assigned_to_code': 'Mã Nhân Viên',
-                    'department': 'Phòng Ban',
-                    'software_list': 'Bản quyền đang dùng',
-                    'specs': 'Cấu hình chi tiết',
-                    'type': 'Loại máy'
+                    'region': 'Vùng miền',
+                    'software_display': 'Bản quyền đang dùng',
+                    'specs': 'Cấu hình',
+                    'status': 'Trạng thái'
                 }),
-                use_container_width=True,
-                column_config={
-                    "Bản quyền đang dùng": st.column_config.TextColumn(width="large"),
-                    "Cấu hình chi tiết": st.column_config.TextColumn(width="medium")
-                }
+                use_container_width=True
             )
 
-            # 5. Gợi ý hành động (Action Tool)
-            if not df_display.empty and search_term:
-                st.info(f"💡 Mẹo: Bạn đang xem danh sách phần mềm được cấp cho các nhân sự khớp với từ khóa '{search_term}'.")
         else:
-            st.info("👋 Hệ thống chưa ghi nhận dữ liệu cấp phát. Hãy cập nhật cột 'software_list' trong tab Kho.")
+            st.info("👋 Hệ thống chưa có dữ liệu tài sản.")
 
     except Exception as e:
-        st.error(f"❌ Lỗi truy xuất dữ liệu chi tiết: {e}")
+        st.error(f"❌ Lỗi cấu trúc bảng: {e}")
