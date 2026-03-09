@@ -101,60 +101,75 @@ def render_usage_details(supabase):
     st.subheader("👥 Truy xuất Chi tiết Cấp phát License & Nhân sự")
     
     try:
-        # 1. TRUY VẤN: Bỏ cột 'department' bị lỗi, thêm các cột thực tế từ bảng của bạn
+        # 1. TRUY VẤN DỮ LIỆU TÀI SẢN
         res = supabase.table("assets").select(
-            "asset_tag, assigned_to_code, software_list, specs, type, status"
+            "asset_tag, assigned_to_code, software_list, status"
         ).execute()
         df_usage = pd.DataFrame(res.data)
 
-        if not df_usage.empty:
-            # 2. XỬ LÝ DỮ LIỆU THÔNG MINH (AI Heuristics)
-            # Tự tạo cột 'Vùng miền' bằng cách tách chữ cuối sau dấu gạch ngang (PC0001-HCM -> HCM)
-            df_usage['region'] = df_usage['asset_tag'].str.split('-').str[-1]
+        # 2. LẤY DANH SÁCH NHÂN VIÊN ĐỂ MAPPING TÊN & PHÒNG BAN
+        # Giả định bạn có bảng 'employees' lưu thông tin nhân sự
+        res_emp = supabase.table("employees").select("code, full_name, department").execute()
+        df_emp = pd.DataFrame(res_emp.data)
+
+        if not df_usage.empty and not df_emp.empty:
+            # Gộp dữ liệu Assets và Employees dựa trên Mã nhân viên
+            df_final = pd.merge(
+                df_usage, 
+                df_emp, 
+                left_on='assigned_to_code', 
+                right_on='code', 
+                how='left'
+            )
+
+            # Xử lý Vùng miền từ asset_tag (Ví dụ: PC0001-HCM -> HCM)
+            df_final['region'] = df_final['asset_tag'].str.split('-').str[-1]
             
-            # Làm sạch hiển thị software_list (từ list sang string để dễ nhìn)
-            df_usage['software_display'] = df_usage['software_list'].apply(
+            # Chuyển list phần mềm thành chuỗi để hiển thị
+            df_final['software_display'] = df_final['software_list'].apply(
                 lambda x: ", ".join(x) if isinstance(x, list) and len(x) > 0 else "Trống"
             )
 
             # 3. BỘ LỌC TÌM KIẾM
             search_col1, search_col2 = st.columns([2, 1])
             with search_col1:
-                search_term = st.text_input("🔍 Tìm theo Mã NV, Phần mềm (Photoshop, Office...)", placeholder="Ví dụ: 3140 hoặc Photoshop...")
+                search_term = st.text_input("🔍 Tìm theo Tên, Mã NV, Phòng ban hoặc Phần mềm...", placeholder="Nhập từ khóa...")
             with search_col2:
-                region_filter = st.multiselect("Lọc theo Vùng miền", options=df_usage['region'].unique(), default=df_usage['region'].unique())
+                region_filter = st.multiselect("Lọc theo Vùng miền", options=df_final['region'].unique(), default=df_final['region'].unique())
 
-            # 4. LOGIC LỌC
-            df_display = df_usage[df_usage['region'].isin(region_filter)].copy()
-            
+            # 4. LOGIC LỌC DỮ LIỆU
+            mask = df_final['region'].isin(region_filter)
             if search_term:
-                mask = (
-                    df_display['assigned_to_code'].astype(str).str.contains(search_term, case=False) |
-                    df_display['software_display'].str.contains(search_term, case=False) |
-                    df_display['asset_tag'].str.contains(search_term, case=False)
+                search_mask = (
+                    df_final['full_name'].str.contains(search_term, case=False, na=False) |
+                    df_final['assigned_to_code'].astype(str).str.contains(search_term, case=False) |
+                    df_final['department'].str.contains(search_term, case=False, na=False) |
+                    df_final['software_display'].str.contains(search_term, case=False)
                 )
-                df_display = df_display[mask]
+                mask = mask & search_mask
+            
+            df_display = df_final[mask]
 
-            # 5. HIỂN THỊ BẢNG (Đã khớp 100% với DB của bạn)
+            # 5. HIỂN THỊ KẾT QUẢ (Đã bỏ Cấu hình, thêm Tên & Phòng ban)
             st.write(f"Tìm thấy **{len(df_display)}** kết quả.")
             
             st.dataframe(
                 df_display[[
-                    'asset_tag', 'assigned_to_code', 'region', 
-                    'software_display', 'specs', 'status'
+                    'asset_tag', 'assigned_to_code', 'full_name', 
+                    'department', 'region', 'software_display', 'status'
                 ]].rename(columns={
                     'asset_tag': 'Mã Máy',
-                    'assigned_to_code': 'Mã Nhân Viên',
+                    'assigned_to_code': 'Mã NV',
+                    'full_name': 'Tên Nhân Viên',
+                    'department': 'Phòng Ban',
                     'region': 'Vùng miền',
                     'software_display': 'Bản quyền đang dùng',
-                    'specs': 'Cấu hình',
                     'status': 'Trạng thái'
                 }),
                 use_container_width=True
             )
-
         else:
-            st.info("👋 Hệ thống chưa có dữ liệu tài sản.")
+            st.info("👋 Không tìm thấy dữ liệu cấp phát hoặc danh sách nhân viên.")
 
     except Exception as e:
-        st.error(f"❌ Lỗi cấu trúc bảng: {e}")
+        st.error(f"❌ Lỗi: {e}")
