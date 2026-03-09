@@ -3,54 +3,47 @@ import pandas as pd
 from datetime import datetime
 
 def render_inventory(supabase):
-    # --- 1. STYLE CHUẨN APPLE & ĐỊNH DẠNG ---
+    # --- 1. STYLE & UI ---
     st.markdown("""
         <style>
         .stApp { background-color: #f5f5f7; }
         .apple-card {
-            background: #ffffff;
-            border-radius: 18px;
-            padding: 24px;
+            background: #ffffff; border-radius: 18px; padding: 24px;
             border: 1px solid rgba(210, 210, 215, 0.5);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-            margin-bottom: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); margin-bottom: 20px;
         }
-        .badge { padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+        .badge { padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; }
         .badge-blue { background: #e8f2ff; color: #0066cc; }
         .badge-green { background: #e2fbe7; color: #1a7f37; }
-        .badge-orange { background: #fff4e5; color: #b76e00; }
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<h1 style="font-weight: 700; color: #1d1d1f; letter-spacing: -0.5px;">📦 Hệ thống Quản trị Tài sản</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 style="font-weight: 700; color: #1d1d1f;">📦 Hệ thống Quản trị Tài sản</h1>', unsafe_allow_html=True)
 
     # --- 2. THỐNG KÊ NHANH (KPIs) ---
     try:
         c1, c2, c3 = st.columns(3)
-        with c1:
-            in_stock = supabase.table("assets").select("id", count="exact").eq("status", "Trong kho").execute().count
-            st.metric("Sẵn có trong kho", f"{in_stock or 0} TB")
-        with c2:
-            deployed = supabase.table("assets").select("id", count="exact").eq("status", "Đang sử dụng").execute().count
-            st.metric("Đang cấp phát", f"{deployed or 0} TB")
-        with c3:
-            low_lic = supabase.table("licenses").select("id").execute()
-            st.metric("Danh mục phần mềm", f"{len(low_lic.data) if low_lic.data else 0} bản")
+        # Sửa lỗi đơn vị 'TB' thành 'Máy' để logic hơn với phần cứng
+        in_stock = supabase.table("assets").select("id", count="exact").eq("status", "Trong kho").execute().count
+        deployed = supabase.table("assets").select("id", count="exact").eq("status", "Đang sử dụng").execute().count
+        lic_count = supabase.table("licenses").select("id").execute()
+        
+        c1.metric("Sẵn có trong kho", f"{in_stock or 0} Máy")
+        c2.metric("Đang cấp phát", f"{deployed or 0} Máy")
+        c3.metric("Danh mục phần mềm", f"{len(lic_count.data) if lic_count.data else 0} bản")
     except Exception:
-        st.warning("Đang kết nối đến cơ sở dữ liệu...")
+        st.warning("⚠️ Đang kết nối đến cơ sở dữ liệu...")
 
     # --- 3. NHẬP KHO THIẾT BỊ MỚI ---
-    with st.expander("📥 Nhập thiết bị mới vào hệ thống", expanded=False):
-        with st.form("apple_add_stock", clear_on_submit=True):
+    with st.expander("📥 Nhập thiết bị mới vào kho", expanded=False):
+        with st.form("add_asset_form", clear_on_submit=True):
             col1, col2, col3 = st.columns([2, 2, 3])
             new_tag = col1.text_input("Asset Tag", placeholder="VD: PC0001")
             
-            type_map = {
-                "Laptop": "LT", "Desktop PC": "PC",
-                "Monitor": "MN", "Server": "Server", "Khác": "Other"
-            }
+            # Map chuẩn để tránh lỗi Check Constraint của Database
+            type_map = {"Laptop": "LT", "Desktop PC": "PC", "Monitor": "MN", "Server": "SV", "Khác": "OT"}
             selected_label = col2.selectbox("Phân loại", list(type_map.keys()))
-            new_specs = col3.text_input("Cấu hình tóm tắt", placeholder="M3 Chip, 16GB RAM...")
+            new_specs = col3.text_input("Cấu hình tóm tắt")
             
             if st.form_submit_button("Xác nhận Nhập kho"):
                 if new_tag:
@@ -59,131 +52,98 @@ def render_inventory(supabase):
                             "asset_tag": new_tag.strip().upper(),
                             "type": type_map[selected_label],
                             "status": "Trong kho",
-                            "specs": {"note": new_specs},
-                            "software_list": []
+                            "specs": {"note": new_specs}
                         }).execute()
-                        st.toast(f"Đã nhập kho {new_tag}", icon="✅")
+                        st.success(f"Đã nhập kho thiết bị {new_tag}")
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Lỗi nhập liệu: {e}")
+                        st.error(f"Lỗi: {e}")
 
-    # --- 4. TRA CỨU & THAO TÁC THEO NHÂN SỰ ---
+    # --- 4. TRA CỨU & QUẢN LÝ NHÂN SỰ (AUTO-REGISTER) ---
     st.markdown("### 👤 Quản lý theo Nhân sự")
-    e_code = st.text_input("Nhập Mã nhân viên (Employee Code)", placeholder="VD: NV001...").strip().upper()
+    e_code = st.text_input("Nhập Mã nhân viên (Employee Code)", placeholder="Nhập mã để tra cứu hoặc đăng ký mới...").strip().upper()
 
     if e_code:
         res_staff = supabase.table("staff").select("*").eq("employee_code", e_code).execute()
         
+        # TRƯỜNG HỢP 1: NHÂN VIÊN ĐÃ TỒN TẠI
         if res_staff.data:
             staff = res_staff.data[0]
             st.markdown(f"""
                 <div class="apple-card">
-                    <span class="badge badge-blue">Mã NV: {staff['employee_code']}</span>
+                    <span class="badge badge-blue">Thành viên hệ thống</span>
                     <h2 style="margin: 10px 0 5px 0;">{staff['full_name']}</h2>
-                    <p style="color: #86868b; margin: 0;">📍 {staff['department']} | {staff['branch']}</p>
+                    <p style="color: #86868b; margin: 0;">📍 {staff.get('department', 'N/A')} | {staff.get('branch', 'N/A')}</p>
                 </div>
             """, unsafe_allow_html=True)
             
-            col_assign, col_current = st.columns([1, 1], gap="large")
+            # Chia cột thao tác
+            col_left, col_right = st.columns(2, gap="large")
             
-            # --- TRÁI: CẤP PHÁT MỚI ---
-            with col_assign:
+            with col_left:
                 st.markdown("#### 📤 Bàn giao thiết bị")
-                available = supabase.table("assets").select("*").eq("status", "Trong kho").execute()
-                
-                if available.data:
-                    with st.form("assign_form"):
-                        asset_options = {f"{a['asset_tag']} ({a['type']})": a for a in available.data}
-                        target_label = st.selectbox("Chọn thiết bị đang trống", list(asset_options.keys()))
-                        date_assign = st.date_input("Ngày bàn giao", value=datetime.now())
-                        
-                        if st.form_submit_button("Xác nhận Bàn giao"):
-                            selected_asset = asset_options[target_label]
+                avail = supabase.table("assets").select("*").eq("status", "Trong kho").execute()
+                if avail.data:
+                    with st.form("assign_asset"):
+                        asset_list = {f"{a['asset_tag']} - {a['type']}": a for a in avail.data}
+                        choice = st.selectbox("Chọn máy trống", list(asset_list.keys()))
+                        if st.form_submit_button("Xác nhận cấp phát"):
+                            target = asset_list[choice]
                             supabase.table("assets").update({
-                                "assigned_to_code": e_code, 
-                                "status": "Đang sử dụng",
-                                "purchase_date": str(date_assign)
-                            }).eq("id", selected_asset['id']).execute()
-                            st.success(f"Đã bàn giao {selected_asset['asset_tag']} cho {staff['full_name']}")
+                                "assigned_to_code": e_code, "status": "Đang sử dụng"
+                            }).eq("id", target['id']).execute()
+                            st.toast(f"Đã cấp máy cho {staff['full_name']}")
                             st.rerun()
                 else:
-                    st.info("Không còn thiết bị trống trong kho.")
+                    st.info("Kho hết máy trống.")
 
-            # --- PHẢI: THIẾT BỊ ĐANG GIỮ & PHẦN MỀM ---
-            with col_current:
-                st.markdown("#### 🖥️ Thiết bị & Phần mềm")
+            with col_right:
+                st.markdown("#### 🖥️ Thiết bị đang giữ")
                 my_assets = supabase.table("assets").select("*").eq("assigned_to_code", e_code).execute()
-                
                 if my_assets.data:
                     for a in my_assets.data:
                         with st.container(border=True):
-                            st.markdown(f"**{a['asset_tag']}** <span class='badge badge-green'>{a['type']}</span>", unsafe_allow_html=True)
-                            
-                            # Xử lý software_list
-                            softwares = a.get('software_list') or []
-                            if softwares:
-                                st.markdown(f"<small>🛡️ **Bản quyền:** {', '.join(softwares)}</small>", unsafe_allow_html=True)
-                            
-                            # Gán License mới
-                            with st.expander("Gán License (Trừ kho)"):
-                                lic_res = supabase.table("licenses").select("*").execute()
-                                if lic_res.data:
-                                    # Fix: Đảm bảo tính toán Remaining chuẩn xác
-                                    options = [l for l in lic_res.data if (l.get('total_quantity', 0) - l.get('used_quantity', 0)) > 0]
-                                    
-                                    if options:
-                                        lic_names = [l['name'] for l in options]
-                                        selected_lic = st.selectbox("Chọn phần mềm", ["-- Chọn --"] + lic_names, key=f"lic_sel_{a['id']}")
-                                        
-                                        if st.button("Cài đặt & Trừ kho", key=f"btn_lic_{a['id']}") and selected_lic != "-- Chọn --":
-                                            if selected_lic not in softwares:
-                                                softwares.append(selected_lic)
-                                                # 1. Cập nhật máy
-                                                supabase.table("assets").update({"software_list": softwares}).eq("id", a['id']).execute()
-                                                # 2. Cập nhật số lượng kho bản quyền
-                                                target_l = next(l for l in options if l['name'] == selected_lic)
-                                                supabase.table("licenses").update({
-                                                    "used_quantity": (target_l.get('used_quantity', 0) + 1)
-                                                }).eq("id", target_l['id']).execute()
-                                                st.rerun()
-                                            else:
-                                                st.warning("Đã cài phần mềm này.")
-                                    else:
-                                        st.error("Hết bản quyền khả dụng!")
-
-                            if st.button("Thu hồi thiết bị", key=f"ret_{a['id']}", use_container_width=True):
+                            st.write(f"**{a['asset_tag']}**")
+                            if st.button("Thu hồi", key=f"ret_{a['id']}"):
                                 supabase.table("assets").update({
                                     "assigned_to_code": None, "status": "Trong kho"
                                 }).eq("id", a['id']).execute()
                                 st.rerun()
                 else:
-                    st.write("*(Chưa có thiết bị cấp phát)*")
+                    st.caption("Chưa giữ máy nào.")
 
-            # --- 5. NHẬT KÝ BẢO TRÌ (FIXED ID ERROR) ---
-            if my_assets.data:
-                st.markdown("---")
-                st.markdown("### 🛠️ Nhật ký bảo trì & Sửa chữa")
-                
-                # Ánh xạ từ Tag sang ID để tránh lỗi 22P02
-                asset_map = {a['asset_tag']: a['id'] for a in my_assets.data}
-                
-                with st.expander("Ghi nhận bảo trì mới"):
-                    with st.form("maint_form"):
-                        target_tag = st.selectbox("Thiết bị", list(asset_map.keys()))
-                        m_type = st.selectbox("Loại hình", ["Bảo trì định kỳ", "Sửa chữa", "Thay thế linh kiện"])
-                        m_note = st.text_area("Chi tiết xử lý")
-                        
-                        if st.form_submit_button("Lưu lịch sử"):
+        # TRƯỜNG HỢP 2: NHÂN VIÊN MỚI (CHƯA TỒN TẠI)
+        else:
+            st.warning(f"Mã nhân viên **{e_code}** chưa có trên hệ thống.")
+            with st.expander(f"🆕 Đăng ký nhân sự mới với mã {e_code}", expanded=True):
+                with st.form("new_staff_form"):
+                    new_name = st.text_input("Họ và Tên")
+                    c_s1, c_s2 = st.columns(2)
+                    new_dept = c_s1.selectbox("Bộ phận", ["Kỹ thuật", "Kế toán", "Kinh doanh", "Nhân sự", "Sản xuất"])
+                    new_branch = c_s2.selectbox("Chi nhánh", ["Hồ Chí Minh", "Hà Nội", "Đà Nẵng"])
+                    
+                    if st.form_submit_button("Tạo hồ sơ & Tiếp tục"):
+                        if new_name:
                             try:
-                                supabase.table("maintenance_log").insert({
-                                    "asset_id": asset_map[target_tag], # Gửi ID số nguyên
-                                    "action_type": m_type,
-                                    "description": m_note,
-                                    "performed_at": str(datetime.now().date())
+                                supabase.table("staff").insert({
+                                    "employee_code": e_code,
+                                    "full_name": new_name,
+                                    "department": new_dept,
+                                    "branch": new_branch
                                 }).execute()
-                                st.success(f"Đã lưu lịch sử bảo trì cho {target_tag}")
+                                st.success("Đã tạo nhân sự mới thành công!")
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"Lỗi RLS hoặc Dữ liệu: {e}")
-        else:
-            st.error("Không tìm thấy nhân viên này trong hệ thống. Vui lòng kiểm tra lại mã.")
+                                st.error(f"Không thể tạo hồ sơ: {e}")
+                        else:
+                            st.error("Vui lòng nhập tên nhân viên.")
+
+    # --- 5. LỊCH SỬ BẢO TRÌ (MỞ RỘNG) ---
+    st.markdown("---")
+    st.markdown("### 🛠️ Nhật ký vận hành toàn hệ thống")
+    # Hiển thị 5 bản ghi bảo trì gần nhất
+    recent_m = supabase.table("maintenance_log").select("*, assets(asset_tag)").order("performed_at", desc=True).limit(5).execute()
+    if recent_m.data:
+        for m in recent_m.data:
+            with st.expander(f"📌 {m['assets']['asset_tag']} - {m['action_type']} ({m['performed_at']})"):
+                st.write(f"**Nội dung:** {m['description']}")
