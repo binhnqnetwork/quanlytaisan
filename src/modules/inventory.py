@@ -2,6 +2,16 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
+def get_maintenance_config(asset_type):
+    """Trả về số tháng bảo trì định kỳ dựa trên loại thiết bị"""
+    configs = {
+        'server': 3,    # Server: 3 tháng/lần
+        'laptop': 6,    # Laptop: 6 tháng/lần
+        'pc': 6,        # PC: 6 tháng/lần
+        'network': 12,  # Thiết bị mạng: 12 tháng/lần
+        'monitor': 24   # Màn hình: 24 tháng/lần
+    }
+    return configs.get(asset_type, 6) # Mặc định 6 tháng
 def render_inventory(supabase):
     # --- STYLE CHUẨN APPLE (GLASSMORPHISM & MINIMAL) ---
     st.markdown("""
