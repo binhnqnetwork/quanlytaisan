@@ -3,32 +3,46 @@ import pandas as pd
 from datetime import datetime
 
 def render_licenses(supabase):
-    st.markdown('<h1 class="main-header">🔑 License Management</h1>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Quản lý kho phần mềm bản quyền và theo dõi thời hạn gia hạn.</p>', unsafe_allow_html=True)
-
-    # --- 1. FORM NHẬP / CẬP NHẬT LICENSE ---
-    with st.expander("＋ Khởi tạo / Cập nhật kho bản quyền", expanded=False):
-        with st.form("add_license_form", clear_on_submit=True):
+    st.markdown('<h2 class="main-header">🌐 Quản lý Bản quyền</h2>', unsafe_allow_html=True)
+    
+    # Form nhập liệu
+    with st.expander("＋ Nhập kho bản quyền mới"):
+        with st.form("add_lic"):
             col1, col2, col3 = st.columns([3, 1, 2])
-            l_name = col1.text_input("Tên phần mềm", placeholder="VD: Windows 11 Pro, Adobe CC...")
-            l_total = col2.number_input("Tổng số lượng mua", min_value=1, value=100)
-            l_expiry = col3.date_input("Ngày hết hạn bản quyền")
-            
-            # Ngưỡng cảnh báo mặc định là 5
-            if st.form_submit_button("Cập nhật vào hệ thống"):
-                if l_name:
-                    try:
-                        supabase.table("licenses").upsert({
-                            "name": l_name.strip(),
-                            "total_quantity": l_total,
-                            "expiry_date": str(l_expiry),
-                            "alert_threshold": 5
-                        }, on_conflict="name").execute()
-                        st.toast(f"Đã cập nhật kho {l_name}", icon="✅")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Lỗi: {e}")
+            name = col1.text_input("Tên phần mềm")
+            total = col2.number_input("Số lượng", min_value=1)
+            expiry = col3.date_input("Hết hạn")
+            if st.form_submit_button("Lưu"):
+                supabase.table("licenses").upsert({
+                    "name": name, "total_quantity": total, "expiry_date": str(expiry)
+                }).execute()
+                st.rerun()
 
+    # Truy vấn dữ liệu
+    res = supabase.table("licenses").select("*").execute()
+    
+    if res.data and len(res.data) > 0:
+        df = pd.DataFrame(res.data)
+        
+        # Đảm bảo các cột có giá trị mặc định nếu bị Null
+        df['total_quantity'] = df['total_quantity'].fillna(0).astype(int)
+        df['used_quantity'] = df['used_quantity'].fillna(0).astype(int)
+        df['Remaining'] = df['total_quantity'] - df['used_quantity']
+        
+        # Hiển thị bảng với cấu hình cột an toàn
+        st.dataframe(
+            df[['name', 'total_quantity', 'used_quantity', 'Remaining', 'expiry_date']],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "name": "Phần mềm",
+                "total_quantity": "Tổng cấp",
+                "used_quantity": "Đã dùng",
+                "Remaining": st.column_config.ProgressColumn("Còn lại", min_value=0, max_value=int(df['total_quantity'].max()))
+            }
+        )
+    else:
+        st.info("Kho bản quyền đang trống. Vui lòng thêm phần mềm mới.")
     # --- 2. TRUY VẤN & XỬ LÝ DỮ LIỆU ---
     res = supabase.table("licenses").select("*").order("name").execute()
     
