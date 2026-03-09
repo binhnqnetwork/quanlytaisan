@@ -7,33 +7,39 @@ def render_inventory(supabase):
 
     # --- PHẦN 1: NHẬP THIẾT BỊ MỚI VÀO KHO ---
     # Mục đích: Tạo ra các Asset Tag trống (chưa có người giữ) để dùng cho phần Cấp phát
-    with st.expander("📥 Nhập thiết bị mới vào kho", expanded=False):
-        with st.form("add_to_stock"):
-            st.write("Điền thông tin thiết bị mới để nhập vào kho hệ thống")
-            c1, c2, c3 = st.columns([2, 2, 2])
-            new_tag = c1.text_input("Mã tài sản (Tag)", placeholder="VD: PC001, LAP05...").strip().upper()
-            new_type = c2.selectbox("Loại thiết bị", ["Laptop", "PC Desktop", "Monitor", "Printer", "Other"])
-            # Gợi ý cấu hình nhanh (Lưu vào cột specs JSONB nếu cần)
-            new_specs = c3.text_input("Ghi chú cấu hình", placeholder="VD: Core i5, 16GB RAM")
-            
-            if st.form_submit_button("💾 Lưu vào kho"):
-                if new_tag:
-                    # Kiểm tra trùng mã tag trước khi insert
-                    check_exist = supabase.table("assets").select("asset_tag").eq("asset_tag", new_tag).execute()
-                    if check_exist.data:
-                        st.error(f"Mã {new_tag} đã tồn tại trong hệ thống!")
-                    else:
-                        supabase.table("assets").insert({
-                            "asset_tag": new_tag,
-                            "type": new_type,
-                            "status": "Trong kho",
-                            "specs": {"note": new_specs} if new_specs else {},
-                            "assigned_to_code": None # Quan trọng: Để trống để hiện ở danh sách cấp phát
-                        }).execute()
-                        st.success(f"Đã nhập {new_tag} vào kho thành công.")
-                        st.rerun()
-                else:
-                    st.warning("Vui lòng nhập Mã tài sản.")
+   # --- SỬA LẠI PHẦN NHẬP THIẾT BỊ MỚI TRONG inventory.py ---
+with st.expander("📥 Nhập thiết bị mới vào kho", expanded=False):
+    with st.form("add_to_stock"):
+        st.write("Điền thông tin thiết bị mới để nhập vào kho hệ thống")
+        c1, c2, c3 = st.columns([2, 2, 2])
+        new_tag = c1.text_input("Mã tài sản (Tag)").strip().upper()
+        
+        # SỬA TẠI ĐÂY: Key là nhãn hiển thị, Value là giá trị lưu vào DB
+        type_options = {
+            "Laptop": "laptop",
+            "Máy tính để bàn (PC)": "pc",
+            "Màn hình (Monitor)": "monitor",
+            "Máy in (Printer)": "printer",
+            "Thiết bị mạng": "network",
+            "Khác": "other"
+        }
+        selected_label = c2.selectbox("Loại thiết bị", list(type_options.keys()))
+        new_type_value = type_options[selected_label] # Giá trị sẽ gửi lên Supabase
+        
+        new_specs = c3.text_input("Ghi chú cấu hình", placeholder="VD: Core i5, 16GB RAM")
+        
+        if st.form_submit_button("💾 Lưu vào kho"):
+            if new_tag:
+                # Gửi data với new_type_value (đã được chuẩn hóa)
+                res = supabase.table("assets").insert({
+                    "asset_tag": new_tag,
+                    "type": new_type_value, # Dùng giá trị chuẩn hóa
+                    "status": "Trong kho",
+                    "specs": {"note": new_specs} if new_specs else {},
+                    "assigned_to_code": None
+                }).execute()
+                st.success(f"Đã nhập {new_tag} vào kho!")
+                st.rerun()
 
     st.divider()
 
