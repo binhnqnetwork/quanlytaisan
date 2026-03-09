@@ -97,3 +97,39 @@ def render_dashboard(supabase):
 
     else:
         st.info("👋 Chưa có dữ liệu tài sản để phân tích.")
+def render_usage_details(supabase):
+    st.subheader("👥 Danh sách Nhân sự & Phần mềm đang sử dụng")
+
+    try:
+        # Lấy dữ liệu từ bảng assets (nơi lưu thông tin máy tính + người dùng + phần mềm cài đặt)
+        res = supabase.table("assets").select("asset_tag, assigned_to_code, department, software_list").execute()
+        df_usage = pd.DataFrame(res.data)
+
+        if not df_usage.empty:
+            # Làm sạch dữ liệu: Chỉ lấy những máy có phần mềm và có người dùng
+            df_usage = df_usage.dropna(subset=['software_list', 'assigned_to_code'])
+            
+            # Filter tìm kiếm nhanh
+            search = st.text_input("🔍 Tìm nhanh theo Tên phần mềm hoặc Mã nhân viên", placeholder="Ví dụ: Photoshop hoặc 3140...")
+            
+            if search:
+                # Tìm kiếm không phân biệt hoa thường trong cột phần mềm hoặc mã nhân viên
+                mask = df_usage['software_list'].str.contains(search, case=False, na=False) | \
+                       df_usage['assigned_to_code'].astype(str).str.contains(search, case=False)
+                df_usage = df_usage[mask]
+
+            # Hiển thị bảng rực rỡ
+            st.dataframe(
+                df_usage.rename(columns={
+                    'asset_tag': 'Mã máy',
+                    'assigned_to_code': 'Mã nhân viên',
+                    'department': 'Phòng ban',
+                    'software_list': 'Danh sách bản quyền'
+                }),
+                use_container_width=True
+            )
+        else:
+            st.info("Chưa có dữ liệu cấp phát phần mềm.")
+            
+    except Exception as e:
+        st.error(f"Lỗi khi tải chi tiết cấp phát: {e}")
