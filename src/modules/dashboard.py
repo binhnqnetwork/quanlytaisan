@@ -48,31 +48,25 @@ def render_dashboard(supabase):
 
     st.markdown("---")
 
-    # --- 3. PHÂN TÍCH TRỰC QUAN (VISUAL ANALYTICS) ---
-    col_left, col_right = st.columns([1, 1])
-
-    with col_left:
-        st.markdown("#### 🏗️ Cơ cấu tài sản theo chủng loại")
-        # Map mã loại sang tên đầy đủ để làm báo cáo chuyên nghiệp
-        type_labels = {'LT': 'Laptop', 'PC': 'Desktop PC', 'MN': 'Monitor', 'Server': 'Server', 'Other': 'Khác'}
-        df_assets['Type Name'] = df_assets['type'].map(type_labels)
-        fig_type = px.pie(df_assets, names='Type Name', hole=0.6, 
-                         color_discrete_sequence=px.colors.qualitative.Pastel)
-        fig_type.update_layout(margin=dict(t=0, b=0, l=0, r=0), showlegend=True)
-        st.plotly_chart(fig_type, use_container_width=True)
-
-    with col_right:
-        st.markdown("#### 📈 Xu hướng bảo trì hệ thống")
-        if not df_maint.empty:
-            df_maint['date'] = pd.to_datetime(df_maint['performed_at'])
-            maint_trend = df_maint.groupby(df_maint['date'].dt.date).count().reset_index()
-            fig_trend = px.area(maint_trend, x='date', y='id', 
-                               labels={'id': 'Số lượt', 'date': 'Ngày'},
-                               color_discrete_sequence=['#0071e3'])
-            fig_trend.update_layout(margin=dict(t=20, b=0, l=0, r=0), height=300)
-            st.plotly_chart(fig_trend, use_container_width=True)
-        else:
-            st.caption("Chưa có dữ liệu lịch sử bảo trì.")
+    # --- TRONG PHẦN 3: VISUAL ANALYTICS ---
+with col_right:
+    st.markdown("#### 📈 Xu hướng bảo trì hệ thống")
+    if not df_maint.empty:
+        # Tạo bản sao để không ảnh hưởng đến dữ liệu gốc
+        df_trend = df_maint.copy()
+        # Chuyển đổi và chỉ lấy ngày
+        df_trend['maint_date'] = pd.to_datetime(df_trend['performed_at']).dt.date
+        
+        # Nhóm theo ngày và đếm số lượt (dùng cột id để đếm)
+        trend_data = df_trend.groupby('maint_date')['id'].count().reset_index()
+        trend_data.columns = ['Ngày', 'Số lượt'] # Đổi tên cột rõ ràng
+        
+        fig_trend = px.area(trend_data, x='Ngày', y='Số lượt', 
+                           color_discrete_sequence=['#0071e3'])
+        fig_trend.update_layout(margin=dict(t=20, b=0, l=0, r=0), height=300)
+        st.plotly_chart(fig_trend, use_container_width=True)
+    else:
+        st.caption("Chưa có dữ liệu lịch sử bảo trì.")
 
     # --- 4. TRUNG TÂM CẢNH BÁO RỦI RO (RISK MANAGEMENT) ---
     st.markdown("### ⚠️ Trung tâm cảnh báo rủi ro")
