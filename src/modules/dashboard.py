@@ -77,10 +77,21 @@ def render_dashboard(supabase):
         if not lic_ai.empty:
             st.markdown("---")
             st.subheader("🌐 Tình trạng Bản quyền & Phần mềm")
+            
+            # Kiểm tra tên cột thực tế để tránh lỗi 'not in index'
+            available_cols = lic_ai.columns.tolist()
+            
+            # Xác định cột tên phần mềm (Thử các trường hợp phổ biến)
+            name_col = next((c for c in ['software_name', 'name', 'software', 'license_name'] if c in available_cols), None)
+            
             risk_licenses = lic_ai[lic_ai['license_risk'] != "✅ Ổn định"]
+            
             if not risk_licenses.empty:
                 st.warning(f"Có {len(risk_licenses)} phần mềm sắp hết hạn hoặc vượt hạn mức.")
-                st.table(risk_licenses[['software_name', 'remaining', 'usage_ratio', 'license_risk']])
+                
+                # Chỉ hiển thị các cột thực sự tồn tại
+                display_cols = [c for c in [name_col, 'remaining', 'usage_ratio', 'license_risk'] if c is not None and c in available_cols]
+                st.table(risk_licenses[display_cols])
             else:
                 st.success("Tất cả bản quyền đang ở trạng thái an toàn.")
 
