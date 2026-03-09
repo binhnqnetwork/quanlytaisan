@@ -2,9 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
-
-# Giả định hàm này được import từ file ai_engine.py của bạn
-# Mình đã cập nhật logic bên trong để nó hiểu 'asset_tag' thay vì 'asset_id'
+# Đảm bảo đường dẫn import chính xác với cấu trúc thư mục của bạn
 from .ai_engine import calculate_ai_metrics 
 
 def render_dashboard(supabase):
@@ -23,10 +21,9 @@ def render_dashboard(supabase):
 
     # --- 2. DATA INGESTION & SMART PRE-PROCESSING ---
     try:
-        # Lấy dữ liệu Real-time từ Supabase
+        # Fetch dữ liệu master
         assets_res = supabase.table("assets").select("*").execute()
         lic_res = supabase.table("licenses").select("*").execute()
-        # Lưu ý: Đảm bảo bảng maintenance_log tồn tại, nếu không sẽ lỗi ở đây
         maint_res = supabase.table("maintenance_log").select("*").execute()
         staff_res = supabase.table("staff").select("employee_code", "full_name", "branch", "department").execute()
 
@@ -39,19 +36,18 @@ def render_dashboard(supabase):
             st.warning("Chưa có dữ liệu tài sản để hiển thị Dashboard.")
             return
 
-        # Mapping nhãn thiết bị theo tiêu chuẩn của bạn
+        # Chuẩn hóa nhãn thiết bị
         type_labels = {'lt': 'Laptop', 'pc': 'Desktop PC', 'mn': 'Monitor', 'sv': 'Server', 'ot': 'Khác'}
         df_assets['Type Label'] = df_assets['type'].str.lower().map(type_labels).fillna('Khác')
 
-        # --- FIX LỖI 'asset_id' TẠI ĐÂY ---
-        # Đảm bảo df_assets có cột 'asset_tag' trước khi đưa vào AI Engine
-        # AI Engine cần được viết để xử lý dựa trên df_assets['asset_tag']
-        ai_metrics, df_ai = calculate_ai_metrics(df_assets, df_maint, df_lic)
+        # --- GỌI ENGINE V2 (NHẬN 3 GIÁ TRỊ) ---
+        # Đây là phần fix lỗi "cannot import name" và "too many values to unpack"
+        ai_metrics, df_ai, license_ai = calculate_ai_metrics(df_assets, df_maint, df_lic)
         
         if not df_ai.empty:
             df_ai['Type Label'] = df_ai['type'].str.lower().map(type_labels).fillna('Khác')
 
-        # Hợp nhất dữ liệu để lọc theo Chi nhánh/Bộ phận
+        # Merge master data để lọc theo Chi nhánh/Bộ phận
         df_master = pd.merge(
             df_assets, 
             df_staff, 
@@ -76,7 +72,7 @@ def render_dashboard(supabase):
 
     df_filtered = df_filtered[df_filtered['department'].isin(selected_depts)]
 
-    # --- 4. HEADER & KPIs ---
+    # --- 4. HEADER & KPIs (SỬ DỤNG AI_METRICS MỚI) ---
     st.markdown('<h1 style="color: #1d1d1f; font-weight: 800;">🧠 AI Strategic Hub</h1>', unsafe_allow_html=True)
     st.caption(f"Dữ liệu đồng bộ Real-time: {datetime.now().strftime('%H:%M:%S')}")
     
@@ -84,12 +80,12 @@ def render_dashboard(supabase):
     k1.metric("Độ tin cậy (MTBF)", ai_metrics.get('mtbf', 'N/A'))
     k2.metric("Thời gian sửa (MTTR)", ai_metrics.get('mttr', 'N/A'))
     
-    active_rate = (len(df_filtered[df_filtered['status']=='Đang sử dụng']) / len(df_filtered) * 100) if not df_filtered.empty else 0
-    k3.metric("Hiệu suất sử dụng", f"{active_rate:.1f}%", f"{len(df_filtered)} máy")
+    # Hiển thị số máy Critical từ Engine V2
+    k3.metric("Thiết bị Rủi ro cao", f"{ai_metrics.get('critical_assets', 0)}", "Cần bảo trì", delta_color="inverse")
     
-    # Check rủi ro License dựa trên cột 'used_quantity' và 'total_quantity'
-    lic_risk_count = len(df_lic[df_lic['used_quantity'] > df_lic['total_quantity']]) if not df_lic.empty else 0
-    k4.metric("Rủi ro License", f"{lic_risk_count}", delta_color="inverse")
+    # Rủi ro License dựa trên bảng license_ai mới
+    lic_risk_count = len(license_ai[license_ai['license_risk'] == 'Critical']) if not license_ai.empty else 0
+    k4.metric("Rủi ro License", f"{lic_risk_count}", "Hết hạn/Vượt hạn", delta_color="inverse")
 
     st.markdown("---")
 
@@ -99,41 +95,52 @@ def render_dashboard(supabase):
     with tab_ai:
         c_left, c_right = st.columns([1.2, 0.8], gap="large")
         with c_left:
-            st.markdown("#### 🛠️ Dự báo bảo trì (AI Risk Score)")
+            st.markdown("#### 🛠️ Dự báo bảo trì (Failure Probability)")
+            # Lọc df_ai theo sidebar
             df_ai_filtered = df_ai[df_ai['asset_tag'].isin(df_filtered['asset_tag'])]
             
             if not df_ai_filtered.empty:
-                high_risk = df_ai_filtered[df_ai_filtered['risk_score'] > 0.5].sort_values('risk_score', ascending=False)
+                # Sắp xếp theo xác suất hỏng từ cao xuống thấp
                 st.dataframe(
-                    high_risk[['asset_tag', 'Type Label', 'risk_score']],
+                    df_ai_filtered.sort_values('failure_probability', ascending=False),
                     column_config={
-                        "risk_score": st.column_config.ProgressColumn("Xác suất sự cố", format="%.0f%%", min_value=0, max_value=1),
+                        "failure_probability": st.column_config.ProgressColumn(
+                            "Xác suất sự cố", format="%.0f%%", min_value=0, max_value=1
+                        ),
+                        "risk_level": "Mức độ",
                         "asset_tag": "Mã tài sản",
                         "Type Label": "Loại"
-                    }, use_container_width=True, hide_index=True
+                    }, 
+                    hide_index=True, 
+                    use_container_width=True,
+                    # Chỉ hiện các cột quan trọng
+                    column_order=("asset_tag", "Type Label", "risk_level", "failure_probability")
                 )
             else:
-                st.info("Chưa có dữ liệu phân tích rủi ro cho nhóm này.")
+                st.info("Chưa có dữ liệu phân tích AI.")
 
         with c_right:
-            st.markdown("#### 💰 Tương quan Tuổi thọ & Rủi ro")
-            if not df_ai_filtered.empty and 'age_days' in df_ai_filtered.columns:
-                fig_risk = px.scatter(df_ai_filtered, x="age_days", y="risk_score", color="Type Label",
+            st.markdown("#### 💰 Risk Score vs Usage Days")
+            if not df_ai_filtered.empty:
+                fig_risk = px.scatter(df_ai_filtered, x="age_days", y="risk_score", 
+                                      color="risk_level", size="m_count",
                                       hover_name="asset_tag", template="plotly_white",
-                                      labels={"age_days": "Số ngày sử dụng", "risk_score": "Điểm rủi ro"})
+                                      color_discrete_map={"Critical": "#ff3b30", "High": "#ff9500", "Medium": "#ffcc00", "Low": "#34c759"})
                 st.plotly_chart(fig_risk, use_container_width=True)
 
     with tab_org:
-        # Biểu đồ Sunburst cho thấy cấu trúc: Chi nhánh > Bộ phận > Loại máy
+        st.markdown("#### 🏛️ Cơ cấu phân bổ thiết bị")
         
         fig_sun = px.sunburst(df_filtered, path=['branch', 'department', 'Type Label'], 
                              color='branch', color_discrete_sequence=px.colors.qualitative.Pastel)
         st.plotly_chart(fig_sun, use_container_width=True)
 
     with tab_lic:
-        if not df_lic.empty:
-            df_lic['util_rate'] = (df_lic['used_quantity'] / df_lic['total_quantity'] * 100)
-            fig_lic = px.bar(df_lic, x='name', y='util_rate', color='util_rate', 
-                             color_continuous_scale="RdYlGn", range_color=[0, 100],
-                             labels={'util_rate': 'Tỷ lệ sử dụng (%)', 'name': 'Phần mềm'})
+        st.markdown("#### 📊 Áp lực sử dụng License")
+        if not license_ai.empty:
+            # Vẽ biểu đồ dựa trên bảng license_ai đã được engine v2 xử lý
+            fig_lic = px.bar(license_ai, x='name', y='usage_ratio', color='license_risk',
+                             color_discrete_map={"Critical": "#ff3b30", "Warning": "#ff9500", "Healthy": "#34c759"},
+                             labels={'usage_ratio': 'Tỷ lệ sử dụng', 'name': 'Phần mềm'})
+            fig_lic.add_hline(y=1.0, line_dash="dash", line_color="red")
             st.plotly_chart(fig_lic, use_container_width=True)
