@@ -4,3 +4,4 @@ supabase
 plotly
 xlsxwriter
 numpy
+matplotlib
