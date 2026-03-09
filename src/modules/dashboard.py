@@ -12,8 +12,8 @@ def render_dashboard(supabase):
         res_assets = supabase.table("assets").select("*").execute()
         df_assets = pd.DataFrame(res_assets.data)
 
-        # Lấy dữ liệu Bảo trì (Maintenance)
-        res_maint = supabase.table("maintenance_history").select("*").execute()
+        # CẬP NHẬT DÒNG NÀY: Đổi 'maintenance_history' thành 'maintenance_log'
+        res_maint = supabase.table("maintenance_log").select("*").execute()
         df_maint = pd.DataFrame(res_maint.data)
 
         # Lấy dữ liệu Bản quyền (Licenses)
