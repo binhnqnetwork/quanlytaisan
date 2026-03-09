@@ -168,27 +168,38 @@ def render_inventory(supabase):
                     st.write("*(Nhân viên này hiện không giữ thiết bị nào)*")
 
             # --- PHẦN BẢO TRÌ ---
-            st.markdown("---")
-            if my_assets.data:
-                st.markdown("### 🛠️ Nhật ký bảo trì cho nhân sự này")
-                asset_ids = [a['id'] for a in my_assets.data]
+            # --- TRONG PHẦN NHẬT KÝ BẢO TRÌ ---
+if my_assets.data:
+    st.markdown("### 🛠️ Nhật ký bảo trì")
+    
+    # TẠO DICTIONARY ĐỂ MAP: "Asset Tag" -> "ID"
+    # Ví dụ: {"MN0003": 12, "LT0002": 9}
+    asset_map = {a['asset_tag']: a['id'] for a in my_assets.data}
+    
+    with st.expander("Ghi nhận bảo trì/sửa chữa mới"):
+        with st.form("maint_quick_form"):
+            # Hiển thị Asset Tag cho người dùng chọn
+            selected_tag = st.selectbox("Chọn thiết bị", list(asset_map.keys()))
+            
+            m_type = st.selectbox("Loại hình", ["Bảo trì định kỳ", "Sửa chữa", "Cài đặt"])
+            m_note = st.text_area("Nội dung xử lý")
+            
+            if st.form_submit_button("Lưu nhật ký"):
+                # LẤY ID SỐ NGUYÊN TỪ MAP ĐÃ TẠO
+                target_id = asset_map[selected_tag] 
                 
-                with st.expander("Ghi nhận bảo trì/sửa chữa mới"):
-                    with st.form("maint_quick_form"):
-                        target_m = st.selectbox("Chọn thiết bị", {f"{a['asset_tag']}": a['id'] for a in my_assets.data})
-                        m_type = st.selectbox("Loại hình", ["Bảo trì định kỳ", "Sửa chữa phần cứng", "Cài đặt phần mềm"])
-                        m_note = st.text_area("Nội dung xử lý")
-                        if st.form_submit_button("Lưu nhật ký"):
-                            today = str(datetime.now().date())
-                            supabase.table("maintenance_log").insert({
-                                "asset_id": target_m, "action_type": m_type,
-                                "description": m_note, "performed_at": today
-                            }).execute()
-                            # Cập nhật ngày bảo trì cuối trên máy
-                            supabase.table("assets").update({"last_maintenance": today}).eq("id", target_m).execute()
-                            st.success("Đã lưu lịch sử bảo trì!")
-                            st.rerun()
-        else:
-            st.error(f"Không tìm thấy nhân viên có mã: {e_code}")
+                try:
+                    # Gửi target_id (số nguyên) thay vì selected_tag (chuỗi)
+                    supabase.table("maintenance_log").insert({
+                        "asset_id": target_id, 
+                        "action_type": m_type,
+                        "description": m_note, 
+                        "performed_at": str(datetime.now().date())
+                    }).execute()
+                    
+                    st.success(f"Đã lưu bảo trì cho {selected_tag}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Lỗi hệ thống: {e}")
 
 # Lưu ý: Đảm bảo bạn gọi render_inventory(supabase) trong file main của bạn.
