@@ -85,9 +85,9 @@ else:
         "📊 Thống kê Tổng quan", 
         "💻 Cấp phát & Kho", 
         "🖥️ Hạ tầng Máy chủ", 
-        "🌐 Bản quyền & License", 
-        "👥 Chi tiết Sử dụng",
-        "🔐 Vault Mật khẩu"
+        "🌐 Bản quyền & License",        
+        "🔐 Vault Mật khẩu",
+        "👥 Chi tiết Sử dụng"
     ])
 
     # Render nội dung từng Module
