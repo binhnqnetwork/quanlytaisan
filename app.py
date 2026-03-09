@@ -18,8 +18,8 @@ except ImportError as e:
 
 # 3. CẤU HÌNH TRANG & GIAO DIỆN
 st.set_page_config(
-    page_title="Enterprise Asset Management",
-    page_icon="🚀",
+    page_title="Quản lý tài sản 4 Oranges",
+    page_icon="🍊🍊🍊🍊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -86,6 +86,7 @@ else:
         "💻 Cấp phát & Kho", 
         "🖥️ Hạ tầng Máy chủ", 
         "🌐 Bản quyền & License", 
+        "👥 Chi tiết Sử dụng",
         "🔐 Vault Mật khẩu"
     ])
 
