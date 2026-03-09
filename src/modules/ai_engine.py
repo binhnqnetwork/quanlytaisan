@@ -11,7 +11,8 @@ def calculate_ai_metrics(df_assets, df_maint, df_lic):
     # Khởi tạo các DataFrame rỗng để an toàn khi return
     df_ai, license_ai = pd.DataFrame(), pd.DataFrame()
     branch_stats, dept_stats, user_stats = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-
+    # Sử dụng dấu gạch dưới (_) để bỏ qua các giá trị dư thừa
+    metrics, df_ai, lic_ai, *others = calculate_ai_metrics(df_assets, df_maint, df_lic)
     if df_assets.empty:
         return ai_metrics, df_ai, license_ai, branch_stats, dept_stats, user_stats
 
