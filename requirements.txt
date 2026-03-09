@@ -1,6 +1,6 @@
 streamlit
-supabase
 pandas
-cryptography
-python-dotenv
-plotly.express
+supabase
+plotly
+xlsxwriter
+numpy
