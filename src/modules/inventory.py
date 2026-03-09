@@ -3,56 +3,45 @@ import pandas as pd
 from datetime import datetime
 
 def render_inventory(supabase):
-    # --- 1. GIAO DIỆN APPLE-STYLE ---
-    st.markdown("""
-        <style>
-        .stApp { background-color: #f5f5f7; }
-        .apple-card {
-            background: #ffffff; border-radius: 18px; padding: 24px;
-            border: 1px solid rgba(210, 210, 215, 0.5);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); margin-bottom: 20px;
-        }
-        .badge { padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; }
-        .badge-blue { background: #e8f2ff; color: #0066cc; }
-        </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown('<h1 style="font-weight: 700; color: #1d1d1f;">📦 Hệ thống Quản trị Tài sản</h1>', unsafe_allow_html=True)
-
-    # --- 2. TỰ ĐỘNG FIX LỖI "assets_type_check" ---
-    # Ánh xạ từ nhãn hiển thị sang mã máy (Constraint yêu cầu)
+    # --- 1. MAPPING CHUẨN ĐỂ FIX LỖI 23514 ---
     type_mapping = {
-        "Laptop": "LT",
-        "Desktop PC": "PC",
-        "Monitor": "MN",
-        "Server": "SV",
-        "Khác": "OT"
+        "Laptop": "LT", "Desktop PC": "PC", "Monitor": "MN", "Server": "SV", "Khác": "OT"
+    }
+    
+    # Mapping hậu tố chi nhánh
+    branch_suffixes = {
+        "Miền Bắc": "MB", "Miền Nam": "MN", "Miền Trung": "MT", "Nhà máy LA": "LA", "Polypack": "PP"
     }
 
-    with st.expander("📥 Nhập thiết bị mới vào kho", expanded=False):
-        with st.form("add_asset_form", clear_on_submit=True):
-            col1, col2, col3 = st.columns([2, 2, 3])
-            new_tag = col1.text_input("Asset Tag", placeholder="VD: PC0001")
-            selected_label = col2.selectbox("Phân loại", list(type_mapping.keys()))
-            new_specs = col3.text_input("Cấu hình tóm tắt")
+    with st.expander("📥 Nhập thiết bị mới (Tùy chỉnh Tag)", expanded=True):
+        with st.form("pro_add_asset_v2"):
+            col1, col2, col3 = st.columns([2, 2, 2])
             
-            if st.form_submit_button("Xác nhận Nhập kho"):
-                if new_tag:
+            raw_tag = col1.text_input("Mã số thiết bị", placeholder="VD: PC0001")
+            suffix_choice = col2.selectbox("Khu vực (Hậu tố)", list(branch_suffixes.keys()))
+            selected_label = col3.selectbox("Phân loại", list(type_mapping.keys()))
+            
+            # Tự động gợi ý Tag đầy đủ
+            full_tag = f"{raw_tag.strip().upper()}-{branch_suffixes[suffix_choice]}"
+            st.caption(f"Asset Tag dự kiến: **{full_tag}**")
+
+            if st.form_submit_button("Xác nhận nhập kho"):
+                if raw_tag:
                     try:
-                        # Dùng mã 'LT', 'PC'... để không vi phạm constraint
-                        db_value = type_mapping[selected_label]
+                        # Gửi 'PC' thay vì 'Desktop PC' để vượt qua constraint
+                        db_type = type_mapping[selected_label]
+                        
                         supabase.table("assets").insert({
-                            "asset_tag": new_tag.strip().upper(),
-                            "type": db_value, 
-                            "status": "Trong kho",
-                            "specs": {"note": new_specs}
+                            "asset_tag": full_tag,
+                            "type": db_type, 
+                            "status": "Trong kho"
                         }).execute()
-                        st.success(f"✅ Đã nhập kho thiết bị {new_tag}")
+                        st.success(f"✅ Đã nhập: {full_tag}")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Lỗi: {e}")
 
-    # --- 3. QUẢN LÝ NHÂN SỰ & ĐĂNG KÝ MỚI ---
+        # --- 3. QUẢN LÝ NHÂN SỰ & ĐĂNG KÝ MỚI ---
     st.markdown("### 👤 Quản lý theo Nhân sự")
     e_code = st.text_input("Mã nhân viên", placeholder="Nhập mã nhân viên (VD: 10438)").strip().upper()
 
