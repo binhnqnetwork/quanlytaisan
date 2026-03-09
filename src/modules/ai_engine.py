@@ -85,21 +85,25 @@ def calculate_ai_metrics(df_assets, df_maint, df_lic):
     )
 
     # -------------------------------------------------
-    # 5. THỐNG KÊ CHI NHÁNH, PHÒNG BAN & NGƯỜI DÙNG
     # -------------------------------------------------
+    # 5. THỐNG KÊ CHI TIẾT (BRANCH / USER) - ĐỒNG BỘ TÊN CỘT
+    # -------------------------------------------------
+    # Thống kê chi nhánh
     branch_stats = df_ai.groupby('branch').agg({
-        'asset_tag': 'count', 'm_count': 'sum', 'risk_score': 'mean'
-    }).rename(columns={'asset_tag': 'Số máy', 'm_count': 'Tổng lượt sửa', 'risk_score': 'Rủi ro TB'}).sort_values('Rủi ro TB', ascending=False)
+        'asset_tag': 'count', 
+        'm_count': 'sum', 
+        'risk_score': 'mean'
+    }).rename(columns={'asset_tag': 'Số máy', 'm_count': 'Tổng lượt hỏng', 'risk_score': 'Rủi ro TB'})
 
-    dept_stats = df_ai.groupby('department').agg({
-        'm_count': 'sum', 'failure_prob': 'mean'
-    }).rename(columns={'m_count': 'Tổng lượt hỏng', 'failure_prob': 'Tỷ lệ rủi ro'}).sort_values('Tổng lượt hỏng', ascending=False)
-
+    # Thống kê người dùng (User) - ĐÂY LÀ NƠI GÂY LỖI
     user_stats = df_ai.groupby(['assigned_to', 'department']).agg({
-        'asset_tag': 'count', 'm_count': 'sum', 'risk_score': 'max'
-    }).rename(columns={'asset_tag': 'Máy giữ', 'm_count': 'Lượt hỏng', 'risk_score': 'Rủi ro Max'}).sort_values('Lượt hỏng', ascending=False).head(10)
-
-    # -------------------------------------------------
+        'asset_tag': 'count', 
+        'm_count': 'sum', 
+        'risk_score': 'max'
+    }).rename(columns={'asset_tag': 'Máy giữ', 'm_count': 'Tổng lượt hỏng', 'risk_score': 'Rủi ro Max'})
+    
+    # Sắp xếp theo 'Tổng lượt hỏng' vừa đổi tên
+    user_stats = user_stats.sort_values('Tổng lượt hỏng', ascending=False).head(10)
     # 6. LICENSE ANALYTICS & SUMMARY
     # -------------------------------------------------
     if df_lic is not None and not df_lic.empty:
