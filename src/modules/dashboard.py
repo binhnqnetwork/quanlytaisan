@@ -69,18 +69,14 @@ def render_dashboard(supabase):
             st.dataframe(critical_list.sort_values('failure_prob', ascending=False), use_container_width=True)
 
         with col_right:
-            st.subheader("🏢 Phân bổ Rủi ro theo Nhóm")
-            # Biểu đồ tròn phân bổ rủi ro
-            fig_pie = px.pie(
-                df_ai, 
-                names='risk_level', 
-                color='risk_level',
-                color_discrete_map={
-                    "🔴 Nguy cấp": "#ff4b4b",
-                    "🟠 Cao": "#ffa500",
-                    "🟡 Trung bình": "#ffd700",
-                    "🟢 Thấp": "#28a745"
-                }
+            st.subheader("👤 Top 10 User cần lưu ý")
+            # Hiển thị bảng với màu sắc cảnh báo dựa trên tên cột ĐÃ ĐỒNG BỘ
+            st.dataframe(
+                u_stats.style.background_gradient(
+                    cmap='YlOrRd', 
+                    subset=['Tổng lượt hỏng', 'Rủi ro Max'] # Phải khớp với rename ở Bước 1
+                ),
+                use_container_width=True
             )
             st.plotly_chart(fig_pie, use_container_width=True)
 
