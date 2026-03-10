@@ -115,12 +115,31 @@ def render_dashboard(supabase, key_prefix="main"):
 
         with col_table:
             st.subheader("📋 Danh sách Drill-down")
+            
+            # Chọn lọc các cột cần thiết để hiển thị theo yêu cầu của bạn
+            # Các cột 'full_name', 'department', 'branch' đã được map từ bảng staff ở bước 2
+            display_df = df_ai[[
+                'asset_tag', 
+                'full_name', 
+                'department', 
+                'branch', 
+                'risk_level'
+            ]].copy()
+
+            # Đổi tên cột sang tiếng Việt cho chuyên nghiệp
+            display_df.columns = [
+                'Mã máy', 
+                'Tên nhân viên', 
+                'Phòng ban', 
+                'Chi nhánh', 
+                'Mức độ rủi ro'
+            ]
+
             st.dataframe(
-                df_ai[['asset_tag', 'full_name', 'risk_level', 'status']].rename(columns={
-                    'asset_tag': 'Mã máy', 'full_name': 'Người sử dụng',
-                    'risk_level': 'Mức độ', 'status': 'Trạng thái'
-                }),
-                use_container_width=True, hide_index=True, height=350
+                display_df,
+                use_container_width=True,
+                hide_index=True,
+                height=350
             )
 
     except Exception as e:
