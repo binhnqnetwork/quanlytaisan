@@ -22,19 +22,19 @@ def render_dashboard(supabase, key_prefix="main"):
             return
 
         # -------------------------------------------------
-        # 2. CHUẨN HÓA DỮ LIỆU (FIX LỖI MERGE)
         # -------------------------------------------------
-        def normalize_code(code):
-            if pd.isna(code) or str(code).strip().lower() in ['none', 'nan', 'null', '']:
-                return None
-            # Loại bỏ .0 nếu dữ liệu bị hiểu nhầm là float và bù số 0 ở đầu (zfill)
-            clean_code = str(code).split('.')[0].strip()
-            return clean_code.zfill(4) if clean_code.isdigit() and len(clean_code) < 4 else clean_code
+        # 2. CHUẨN HÓA DỮ LIỆU (BẢN FIX CUỐI CÙNG)
+        # -------------------------------------------------
+        
+        # Chuyển đổi toàn bộ cột liên kết sang String và xóa bỏ khoảng trắng thừa
+        # Điều này đảm bảo '0001' (text) sẽ khớp với '0001' (text)
+        df_assets['assigned_to_code'] = df_assets['assigned_to_code'].astype(str).str.strip()
+        df_staff['employee_code'] = df_staff['employee_code'].astype(str).str.strip()
 
-        df_assets['assigned_to_code'] = df_assets['assigned_to_code'].apply(normalize_code)
-        df_staff['employee_code'] = df_staff['employee_code'].apply(normalize_code)
+        # Xử lý các giá trị rác phát sinh khi ép kiểu (nan, None)
+        df_assets['assigned_to_code'] = df_assets['assigned_to_code'].replace(['nan', 'None', 'null', ''], None)
 
-        # Merge dữ liệu nhân sự
+        # Thực hiện Merge (Khớp nối)
         df_main = pd.merge(
             df_assets, 
             df_staff[['employee_code', 'full_name', 'department', 'branch']], 
@@ -43,15 +43,16 @@ def render_dashboard(supabase, key_prefix="main"):
             how='left'
         )
 
-        # Xử lý các dòng máy trong kho hoặc mã sai
-        unassigned_mask = df_main['assigned_to_code'].isna()
-        invalid_mask = df_main['full_name'].isna() & df_main['assigned_to_code'].notna()
-
-        df_main.loc[unassigned_mask, 'full_name'] = '📦 Kho tổng / Hệ thống'
-        df_main.loc[unassigned_mask, 'department'] = 'Lưu kho'
-        df_main.loc[unassigned_mask, 'branch'] = 'Chưa gán'
+        # Logic phân loại hiển thị
+        # 1. Nếu mã trống hoàn toàn -> Cho vào kho
+        mask_in_stock = df_main['assigned_to_code'].isna()
+        df_main.loc[mask_in_stock, 'full_name'] = '📦 Kho tổng / Hệ thống'
+        df_main.loc[mask_in_stock, 'department'] = 'Lưu kho'
+        df_main.loc[mask_in_stock, 'branch'] = 'Toàn quốc'
         
-        df_main.loc[invalid_mask, 'full_name'] = '⚠️ Sai mã: ' + df_main['assigned_to_code'].astype(str)
+        # 2. Nếu có mã nhưng merge xong full_name vẫn null -> Sai mã nhân viên
+        mask_error = df_main['full_name'].isna() & df_main['assigned_to_code'].notna()
+        df_main.loc[mask_error, 'full_name'] = '⚠️ Không tìm thấy NV: ' + df_main['assigned_to_code']
 
         # -------------------------------------------------
         # 3. SIDEBAR & BỘ LỌC
