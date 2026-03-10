@@ -26,13 +26,13 @@ def render_dashboard(supabase, key_prefix="main"):
             return
 
         # -------------------------------------------------
-        # 2. CHUẨN HÓA DỮ LIỆU & MAP NHÂN SỰ (SỬA LỖI FILLNA)
+        # 2. CHUẨN HÓA DỮ LIỆU & MAP NHÂN SỰ (PRO LOGIC)
         # -------------------------------------------------
-        # Làm sạch mã gán (chuyển về None nếu trống để merge chính xác)
+        # Làm sạch mã gán (Chuyển các giá trị trống về None để Merge chuẩn xác)
         df_assets['assigned_to_code'] = df_assets['assigned_to_code'].astype(str).replace(['None', 'nan', '<NA>', ''], None).str.strip()
         df_staff['employee_code'] = df_staff['employee_code'].astype(str).str.strip()
 
-        # Merge lấy thông tin nhân sự
+        # Merge lấy thông tin nhân sự từ bảng Staff sang bảng Assets
         df_main = pd.merge(
             df_assets, 
             df_staff[['employee_code', 'full_name', 'department', 'branch']], 
@@ -41,8 +41,7 @@ def render_dashboard(supabase, key_prefix="main"):
             how='left'
         )
 
-        # CHỈ FILLNA CHO NHỮNG DÒNG KHÔNG CÓ NHÂN VIÊN (MÁY TRONG KHO)
-        # Cách này tránh việc ghi đè "Toàn quốc" lên dữ liệu thật của Staff
+        # XỬ LÝ NHÃN CHO MÁY TRONG KHO (CHỈ FILLNA CHO DÒNG TRỐNG)
         mask_in_stock = df_main['assigned_to_code'].isna()
         df_main.loc[mask_in_stock, 'full_name'] = '📦 Kho tổng / Hệ thống'
         df_main.loc[mask_in_stock, 'department'] = 'Hạ tầng (Kho)'
@@ -54,21 +53,22 @@ def render_dashboard(supabase, key_prefix="main"):
         with st.sidebar:
             st.header("🎯 Điều khiển Dashboard")
             
-            branches = ["Tất cả"] + sorted(df_main['branch'].unique().astype(str).tolist())
+            # Lấy danh sách duy nhất và loại bỏ giá trị rác
+            branches = ["Tất cả"] + sorted([x for x in df_main['branch'].unique() if pd.notna(x)])
             sel_branch = st.selectbox("Chi nhánh", branches, key=f"{key_prefix}_branch")
             
-            depts = ["Tất cả"] + sorted(df_main['department'].unique().astype(str).tolist())
+            depts = ["Tất cả"] + sorted([x for x in df_main['department'].unique() if pd.notna(x)])
             sel_dept = st.selectbox("Phòng ban", depts, key=f"{key_prefix}_dept")
             
-            types = ["Tất cả"] + sorted(df_main['type'].unique().astype(str).tolist())
+            types = ["Tất cả"] + sorted([x for x in df_main['type'].unique() if pd.notna(x)])
             sel_type = st.selectbox("Loại tài sản", types, key=f"{key_prefix}_type")
 
-        # 4. SEARCH
+        # 4. SEARCH (Tìm theo mã máy hoặc tên người dùng)
         search_query = st.text_input("🔍 Tìm kiếm tài sản", 
                                      placeholder="Nhập mã máy hoặc tên nhân viên...", 
                                      key=f"{key_prefix}_search")
 
-        # Áp dụng logic lọc
+        # Áp dụng logic lọc dữ liệu
         df_filtered = df_main.copy()
         if sel_branch != "Tất cả": df_filtered = df_filtered[df_filtered['branch'] == sel_branch]
         if sel_dept != "Tất cả": df_filtered = df_filtered[df_filtered['department'] == sel_dept]
@@ -81,18 +81,18 @@ def render_dashboard(supabase, key_prefix="main"):
             ]
 
         # -------------------------------------------------
-        # 5. AI ENGINE INTEGRATION
+        # 5. AI ENGINE INTEGRATION & BẢO TOÀN DỮ LIỆU
         # -------------------------------------------------
         df_lic = pd.DataFrame(res_lic.data)
         df_maint = pd.DataFrame(res_maint.data)
 
+        # Gọi Engine AI để tính toán mức độ rủi ro
         metrics, df_ai, lic_ai, b_stats, d_stats, u_stats = ai_engine.calculate_ai_metrics(
             df_filtered, df_maint, df_lic, df_staff
         )
 
-        # ĐẢM BẢO CÁC CỘT THÔNG TIN KHÔNG BỊ MẤT SAU KHI QUA AI ENGINE
-        required_cols = ['full_name', 'department', 'branch']
-        for col in required_cols:
+        # KIỂM TRA: Nếu AI Engine làm mất các cột Personel, ta map lại ngay
+        for col in ['full_name', 'department', 'branch']:
             if col not in df_ai.columns:
                 df_ai = pd.merge(df_ai, df_main[['asset_tag', col]], on='asset_tag', how='left')
 
@@ -107,7 +107,7 @@ def render_dashboard(supabase, key_prefix="main"):
         k4.metric("⚙️ MTTR (Avg)", metrics.get("mttr", "N/A"))
 
         st.markdown("---")
-        col_pie, col_table = st.columns([4, 6]) # Chỉnh tỉ lệ 4:6 để bảng rộng hơn
+        col_pie, col_table = st.columns([4, 6]) 
         
         with col_pie:
             st.subheader("📊 Mức độ rủi ro (AI)")
@@ -125,7 +125,7 @@ def render_dashboard(supabase, key_prefix="main"):
         with col_table:
             st.subheader("📋 Danh sách Drill-down")
             
-            # Chọn lọc và sắp xếp lại các cột theo yêu cầu của bạn
+            # Hiển thị 5 cột thông tin cốt lõi
             display_df = df_ai[[
                 'asset_tag', 
                 'full_name', 
@@ -134,7 +134,6 @@ def render_dashboard(supabase, key_prefix="main"):
                 'risk_level'
             ]].copy()
 
-            # Đổi tên cột sang tiếng Việt chuyên nghiệp
             display_df.columns = ['Mã máy', 'Tên nhân viên', 'Phòng ban', 'Chi nhánh', 'Rủi ro']
 
             st.dataframe(
