@@ -6,7 +6,7 @@ from . import ai_engine
 def render_dashboard(supabase, key_prefix="main"):
     """
     Hệ thống Dashboard đa năng. 
-    Tham số key_prefix giúp tránh lỗi Duplicate Element ID khi gọi hàm ở nhiều Tab.
+    Tham số key_prefix giúp tránh lỗi Duplicate Element ID.
     """
     st.markdown("### 🏢 Enterprise Asset Management System")
 
@@ -26,11 +26,13 @@ def render_dashboard(supabase, key_prefix="main"):
             return
 
         # -------------------------------------------------
-        # 2. CHUẨN HÓA DỮ LIỆU
+        # 2. CHUẨN HÓA DỮ LIỆU & MAP NHÂN SỰ (SỬA LỖI FILLNA)
         # -------------------------------------------------
-        df_assets['assigned_to_code'] = df_assets['assigned_to_code'].astype(str).replace(['None', 'nan', '<NA>'], '').str.strip()
+        # Làm sạch mã gán (chuyển về None nếu trống để merge chính xác)
+        df_assets['assigned_to_code'] = df_assets['assigned_to_code'].astype(str).replace(['None', 'nan', '<NA>', ''], None).str.strip()
         df_staff['employee_code'] = df_staff['employee_code'].astype(str).str.strip()
 
+        # Merge lấy thông tin nhân sự
         df_main = pd.merge(
             df_assets, 
             df_staff[['employee_code', 'full_name', 'department', 'branch']], 
@@ -39,22 +41,26 @@ def render_dashboard(supabase, key_prefix="main"):
             how='left'
         )
 
-        fill_values = {'full_name': 'Hệ thống / Kho', 'department': 'Chưa gán', 'branch': 'Toàn quốc'}
-        df_main = df_main.fillna(value=fill_values)
+        # CHỈ FILLNA CHO NHỮNG DÒNG KHÔNG CÓ NHÂN VIÊN (MÁY TRONG KHO)
+        # Cách này tránh việc ghi đè "Toàn quốc" lên dữ liệu thật của Staff
+        mask_in_stock = df_main['assigned_to_code'].isna()
+        df_main.loc[mask_in_stock, 'full_name'] = '📦 Kho tổng / Hệ thống'
+        df_main.loc[mask_in_stock, 'department'] = 'Hạ tầng (Kho)'
+        df_main.loc[mask_in_stock, 'branch'] = 'Chưa gán'
 
         # -------------------------------------------------
-        # 3. FILTERS (Sử dụng key_prefix để tránh lỗi trùng ID)
+        # 3. FILTERS (Sử dụng key_prefix)
         # -------------------------------------------------
         with st.sidebar:
             st.header("🎯 Điều khiển Dashboard")
             
-            branches = ["Tất cả"] + sorted(df_main['branch'].unique().tolist())
+            branches = ["Tất cả"] + sorted(df_main['branch'].unique().astype(str).tolist())
             sel_branch = st.selectbox("Chi nhánh", branches, key=f"{key_prefix}_branch")
             
-            depts = ["Tất cả"] + sorted(df_main['department'].unique().tolist())
+            depts = ["Tất cả"] + sorted(df_main['department'].unique().astype(str).tolist())
             sel_dept = st.selectbox("Phòng ban", depts, key=f"{key_prefix}_dept")
             
-            types = ["Tất cả"] + sorted(df_main['type'].unique().tolist())
+            types = ["Tất cả"] + sorted(df_main['type'].unique().astype(str).tolist())
             sel_type = st.selectbox("Loại tài sản", types, key=f"{key_prefix}_type")
 
         # 4. SEARCH
@@ -62,7 +68,7 @@ def render_dashboard(supabase, key_prefix="main"):
                                      placeholder="Nhập mã máy hoặc tên nhân viên...", 
                                      key=f"{key_prefix}_search")
 
-        # Logic lọc
+        # Áp dụng logic lọc
         df_filtered = df_main.copy()
         if sel_branch != "Tất cả": df_filtered = df_filtered[df_filtered['branch'] == sel_branch]
         if sel_dept != "Tất cả": df_filtered = df_filtered[df_filtered['department'] == sel_dept]
@@ -84,8 +90,11 @@ def render_dashboard(supabase, key_prefix="main"):
             df_filtered, df_maint, df_lic, df_staff
         )
 
-        if 'full_name' not in df_ai.columns:
-            df_ai = pd.merge(df_ai, df_main[['asset_tag', 'full_name']], on='asset_tag', how='left')
+        # ĐẢM BẢO CÁC CỘT THÔNG TIN KHÔNG BỊ MẤT SAU KHI QUA AI ENGINE
+        required_cols = ['full_name', 'department', 'branch']
+        for col in required_cols:
+            if col not in df_ai.columns:
+                df_ai = pd.merge(df_ai, df_main[['asset_tag', col]], on='asset_tag', how='left')
 
         # -------------------------------------------------
         # 6. HIỂN THỊ (KPI & DRILL-DOWN)
@@ -98,7 +107,7 @@ def render_dashboard(supabase, key_prefix="main"):
         k4.metric("⚙️ MTTR (Avg)", metrics.get("mttr", "N/A"))
 
         st.markdown("---")
-        col_pie, col_table = st.columns([5, 5])
+        col_pie, col_table = st.columns([4, 6]) # Chỉnh tỉ lệ 4:6 để bảng rộng hơn
         
         with col_pie:
             st.subheader("📊 Mức độ rủi ro (AI)")
@@ -110,14 +119,13 @@ def render_dashboard(supabase, key_prefix="main"):
                     "🟡 Trung bình": "#F0E68C", "🟢 Thấp": "#28A745"
                 }
             )
-            fig.update_layout(margin=dict(t=0, b=0, l=0, r=0))
+            fig.update_layout(margin=dict(t=20, b=20, l=0, r=0), showlegend=True)
             st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_pie_chart")
 
         with col_table:
             st.subheader("📋 Danh sách Drill-down")
             
-            # Chọn lọc các cột cần thiết để hiển thị theo yêu cầu của bạn
-            # Các cột 'full_name', 'department', 'branch' đã được map từ bảng staff ở bước 2
+            # Chọn lọc và sắp xếp lại các cột theo yêu cầu của bạn
             display_df = df_ai[[
                 'asset_tag', 
                 'full_name', 
@@ -126,25 +134,18 @@ def render_dashboard(supabase, key_prefix="main"):
                 'risk_level'
             ]].copy()
 
-            # Đổi tên cột sang tiếng Việt cho chuyên nghiệp
-            display_df.columns = [
-                'Mã máy', 
-                'Tên nhân viên', 
-                'Phòng ban', 
-                'Chi nhánh', 
-                'Mức độ rủi ro'
-            ]
+            # Đổi tên cột sang tiếng Việt chuyên nghiệp
+            display_df.columns = ['Mã máy', 'Tên nhân viên', 'Phòng ban', 'Chi nhánh', 'Rủi ro']
 
             st.dataframe(
                 display_df,
                 use_container_width=True,
                 hide_index=True,
-                height=350
+                height=400
             )
 
     except Exception as e:
         st.error(f"❌ Lỗi Dashboard: {str(e)}")
 
 def render_usage_details(supabase):
-    """Tab 5: Gọi lại dashboard nhưng với key khác để không trùng ID"""
     render_dashboard(supabase, key_prefix="usage_tab")
