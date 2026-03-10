@@ -86,8 +86,7 @@ else:
         "💻 Cấp phát & Kho", 
         "🖥️ Hạ tầng Máy chủ", 
         "🌐 Bản quyền & License",        
-        "🔐 Vault Mật khẩu",
-        "👥 Chi tiết Sử dụng"
+        "🔐 Vault Mật khẩu"       
     ])
 
     # Render nội dung từng Module
@@ -123,9 +122,4 @@ else:
             vault.render_vault(supabase)
         except Exception as e:
             st.error(f"❌ Lỗi hiển thị Vault: {e}")
-    with tabs[5]:
-        try:
-            # Gọi hàm hiển thị chi tiết từ dashboard.py
-            dashboard.render_usage_details(supabase)
-        except Exception as e:
-            st.error(f"❌ Lỗi hiển thị Chi tiết sử dụng: {e}")
+    
