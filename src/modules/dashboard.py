@@ -21,13 +21,13 @@ def render_dashboard(supabase):
             return
 
         # -------------------------------------------------
-        # 2. XỬ LÝ CHUẨN HÓA MÃ NHÂN VIÊN (SỬA LỖI TRIỆT ĐỂ)
+        # 2. CHUẨN HÓA & XỬ LÝ NULL (SỬA LỖI FULL_NAME)
         # -------------------------------------------------
-        # Chuyển tất cả về chuỗi, viết hoa và xóa khoảng trắng thừa
-        df_assets['assigned_to_code'] = df_assets['assigned_to_code'].astype(str).str.strip()
+        # Bước A: Ép kiểu chuỗi và xử lý khoảng trắng, xử lý giá trị null thành chuỗi trống
+        df_assets['assigned_to_code'] = df_assets['assigned_to_code'].astype(str).replace('None', '').replace('nan', '').str.strip()
         df_staff['employee_code'] = df_staff['employee_code'].astype(str).str.strip()
 
-        # Thực hiện Merge
+        # Bước B: Thực hiện Merge an toàn
         df_merged = pd.merge(
             df_assets, 
             df_staff[['employee_code', 'full_name', 'department', 'branch']], 
@@ -36,16 +36,16 @@ def render_dashboard(supabase):
             how='left'
         )
 
-        # CƯỠNG BỨC TẠO CỘT: Nếu sau merge vẫn không có full_name (do staff trống)
+        # Bước C: "Cấp cứu" cột full_name nếu merge không ra kết quả nào khớp
         if 'full_name' not in df_merged.columns:
-            df_merged['full_name'] = "N/A"
+            df_merged['full_name'] = "Chưa xác định"
         if 'branch' not in df_merged.columns:
-            df_merged['branch'] = "N/A"
+            df_merged['branch'] = "Hệ thống"
         if 'department' not in df_merged.columns:
-            df_merged['department'] = "N/A"
+            df_merged['department'] = "Kho"
 
-        # Điền giá trị mặc định cho các dòng không khớp (Unassigned)
-        df_merged['full_name'] = df_merged['full_name'].fillna("Kho tổng / Chưa cấp")
+        # Bước D: Điền giá trị cho các dòng trống (như Server hoặc máy trong kho)
+        df_merged['full_name'] = df_merged['full_name'].fillna("Hệ thống / Trong kho")
         df_merged['branch'] = df_merged['branch'].fillna("Văn phòng")
         df_merged['department'] = df_merged['department'].fillna("Hạ tầng")
 
@@ -54,87 +54,76 @@ def render_dashboard(supabase):
         # -------------------------------------------------
         with st.sidebar:
             st.divider()
-            st.subheader("🛠️ Bộ lọc dữ liệu")
+            st.subheader("🛠️ Bộ lọc Enterprise")
             
-            # Filter Chi nhánh (Branch)
-            branches = ["Tất cả"] + sorted(df_merged['branch'].unique().tolist())
-            sel_branch = st.selectbox("Chi nhánh", branches)
-            
-            # Filter Phòng ban (Department)
-            depts = ["Tất cả"] + sorted(df_merged['department'].unique().tolist())
-            sel_dept = st.selectbox("Phòng ban", depts)
-            
-            # Filter Loại máy (Category - nếu có)
-            asset_types = ["Tất cả"]
-            if 'category' in df_merged.columns:
-                asset_types += sorted(df_merged['category'].unique().tolist())
-            sel_type = st.selectbox("Loại tài sản", asset_types)
+            # Lấy list unique an toàn
+            def get_unique_list(df, col):
+                return ["Tất cả"] + sorted([str(x) for x in df[col].unique() if x and x != 'nan'])
+
+            sel_branch = st.selectbox("Chi nhánh", get_unique_list(df_merged, 'branch'))
+            sel_dept = st.selectbox("Phòng ban", get_unique_list(df_merged, 'department'))
+            sel_status = st.selectbox("Trạng thái", ["Tất cả"] + sorted(df_merged['status'].unique().tolist()))
 
         # -------------------------------------------------
-        # 4. TÌM KIẾM & DRILL-DOWN (TIÊU CHÍ 2 & 3)
+        # 4. TÌM KIẾM & DRILL-DOWN
         # -------------------------------------------------
-        search_query = st.text_input("🔍 Tìm nhanh Asset hoặc Nhân sự", placeholder="Nhập Asset Tag, Tên nhân viên...")
+        search_query = st.text_input("🔍 Tìm nhanh Asset (Mã máy, Tên nhân viên...)", placeholder="Ví dụ: PC0001, Quang Bình...")
 
         # Áp dụng Filter
-        df_filtered = df_merged.copy()
-        if sel_branch != "Tất cả":
-            df_filtered = df_filtered[df_filtered['branch'] == sel_branch]
-        if sel_dept != "Tất cả":
-            df_filtered = df_filtered[df_filtered['department'] == sel_dept]
-        if sel_type != "Tất cả":
-            df_filtered = df_filtered[df_filtered['category'] == sel_type]
-            
+        mask = pd.Series([True] * len(df_merged))
+        if sel_branch != "Tất cả": mask &= (df_merged['branch'] == sel_branch)
+        if sel_dept != "Tất cả": mask &= (df_merged['department'] == sel_dept)
+        if sel_status != "Tất cả": mask &= (df_merged['status'] == sel_status)
+        
         if search_query:
-            df_filtered = df_filtered[
-                df_filtered['asset_tag'].str.contains(search_query, case=False, na=False) | 
-                df_filtered['full_name'].str.contains(search_query, case=False, na=False) |
-                df_filtered['assigned_to_code'].str.contains(search_query, case=False, na=False)
-            ]
+            search_mask = (
+                df_merged['asset_tag'].str.contains(search_query, case=False, na=False) | 
+                df_merged['full_name'].str.contains(search_query, case=False, na=False) |
+                df_merged['assigned_to_code'].str.contains(search_query, case=False, na=False)
+            )
+            mask &= search_mask
+
+        df_filtered = df_merged[mask]
 
         # -------------------------------------------------
-        # 5. GỌI AI ENGINE & HIỂN THỊ
+        # 5. GỌI AI ENGINE & HIỂN THỊ KPI
         # -------------------------------------------------
         df_lic = pd.DataFrame(res_lic.data)
         df_maint = pd.DataFrame(res_maint.data)
         
+        # Đảm bảo ai_engine nhận được dữ liệu sạch
         metrics, df_ai, lic_ai, b_stats, d_stats, u_stats = ai_engine.calculate_ai_metrics(
             df_filtered, df_maint, df_lic, df_staff
         )
 
-        # KPI Metrics
         st.markdown("---")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Máy đang hiển thị", len(df_filtered))
-        m2.metric("🚨 Nguy cấp", metrics.get("critical_assets", 0))
-        m3.metric("🔑 Lỗi License", metrics.get("license_alerts", 0))
-        m4.metric("🛠️ MTTR (Avg)", metrics.get("mttr", "N/A"))
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Thiết bị hiển thị", len(df_filtered))
+        k2.metric("🚨 Nguy cấp", metrics.get("critical_assets", 0))
+        k3.metric("🔑 Lỗi License", metrics.get("license_alerts", 0))
+        k4.metric("🛠️ MTTR (Avg)", metrics.get("mttr", "N/A"))
 
-        # Visual Charts & Drill-down
+        # Pie Chart và Bảng Chi tiết
         st.markdown("---")
-        c_left, c_right = st.columns([6, 4])
-        
-        with c_left:
-            st.subheader("📊 Phân bổ rủi ro hệ thống")
+        c1, c2 = st.columns([6, 4])
+        with c1:
+            st.subheader("📊 Mức độ rủi ro")
             fig = px.pie(df_ai, names='risk_level', hole=0.5,
                          color='risk_level', color_discrete_map={
                              "🔴 Nguy cấp": "#FF4B4B", "🟠 Cao": "#FFA500", "🟢 Thấp": "#28A745"
                          })
             st.plotly_chart(fig, use_container_width=True)
 
-        with c_right:
-            st.subheader("📋 Danh sách Drill-down")
-            st.caption("Dữ liệu lọc theo Search & Sidebar bên trái")
+        with c2:
+            st.subheader("📋 Danh sách Chi tiết")
             st.dataframe(
-                df_ai[['asset_tag', 'full_name', 'risk_level', 'department']].rename(columns={
-                    'asset_tag': 'Mã máy', 'full_name': 'Người dùng', 
-                    'risk_level': 'Mức độ', 'department': 'Phòng ban'
-                }), 
-                use_container_width=True, hide_index=True, height=400
+                df_ai[['asset_tag', 'full_name', 'risk_level']].rename(columns={
+                    'asset_tag': 'Mã máy', 'full_name': 'Người giữ', 'risk_level': 'Rủi ro'
+                }), use_container_width=True, hide_index=True, height=400
             )
 
     except Exception as e:
         st.error(f"❌ Lỗi Dashboard: {str(e)}")
 
 def render_usage_details(supabase):
-    """Đồng bộ Tab 5 sử dụng chung logic an toàn"""
     render_dashboard(supabase)
