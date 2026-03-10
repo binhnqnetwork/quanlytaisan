@@ -110,22 +110,111 @@ def calculate_ai_metrics(df_assets, df_maint, df_lic, df_staff=None):
     # -------------------------------------------------
     if df_lic is not None and not df_lic.empty:
         license_ai = df_lic.copy()
-        # Tính toán dựa trên cột thực tế của bạn (software_name, total_quantity, used_quantity)
+        
+        # Đồng bộ tên cột theo bảng thực tế của bạn
+        # Cột 'name' trong DB -> đổi thành 'software_name' để hiển thị
+        license_ai = license_ai.rename(columns={'name': 'software_name'})
+        
+        # Tính toán dựa trên số lượng thực tế
         license_ai["remaining"] = license_ai["total_quantity"] - license_ai["used_quantity"]
+        
+        # Tránh lỗi chia cho 0 nếu total_quantity = 0
         license_ai["usage_ratio"] = (license_ai["used_quantity"] / license_ai["total_quantity"]).replace([np.inf, -np.inf], 0).fillna(0)
         
+        # AI Logic: Cảnh báo dựa trên alert_threshold từ Database của bạn
+        # Nếu số lượng còn lại <= ngưỡng thiết lập, đánh dấu Nguy cấp
         license_ai["license_risk"] = np.select(
-            [license_ai["remaining"] <= 1, license_ai["usage_ratio"] >= 1.0],
-            ["🚨 Nguy cấp", "⚠️ Hết hạn mức"], default="✅ Ổn định"
+            [
+                license_ai["remaining"] <= license_ai["alert_threshold"],
+                license_ai["usage_ratio"] >= 0.9
+            ],
+            ["🚨 Sắp hết hạn mức", "⚠️ Sử dụng cao"], 
+            default="✅ Ổn định"
         )
-        ai_metrics["license_alerts"] = int((license_ai["remaining"] <= 1).sum())
+        
+        # Đếm số lượng license cần chú ý cho KPI Card
+        ai_metrics["license_alerts"] = int((license_ai["remaining"] <= license_ai["alert_threshold"]).sum())
 
-    # Summary Metrics
-    ai_metrics["critical_assets"] = int((df_ai_base["risk_score"] >= 0.7).sum())
-    ai_metrics["high_risk_assets"] = int((df_ai_base["risk_score"] >= 0.4).sum())
-    
-    if df_maint is not None and len(df_maint) > 0:
-        mtbf = df_ai_base["age_days"].sum() / (len(df_maint) + 1)
-        ai_metrics["mtbf"] = f"{int(mtbf)} ngày"
-
+    # ... (trả về các giá trị) ...
     return ai_metrics, df_ai_base, license_ai, branch_stats, dept_stats, user_stats
+2. Cập nhật src/modules/dashboard.py
+Phần này đã được tối ưu để hiển thị bảng Truy xuất Chi tiết theo đúng ảnh mẫu bạn gửi: Bỏ "Cấu hình", thêm "Nhân viên" và "Phòng ban".
+
+Python
+def render_dashboard(supabase):
+    # ... (Phần KPI Cards và Biểu đồ giữ nguyên như bản trước) ...
+
+    # 5. HIỂN THỊ BẢNG LICENSE (Sau khi đã sửa tên cột ở Engine)
+    if not lic_ai.empty:
+        st.markdown("---")
+        st.subheader("🌐 Tình trạng Bản quyền & Phần mềm")
+        
+        # Lọc ra các license có vấn đề hoặc sắp hết
+        risk_licenses = lic_ai[lic_ai['license_risk'] != "✅ Ổn định"]
+        
+        if not risk_licenses.empty:
+            st.warning(f"Phát hiện {len(risk_licenses)} phần mềm cần lưu ý.")
+            st.dataframe(
+                risk_licenses[['software_name', 'expiry_date', 'used_quantity', 'total_quantity', 'remaining', 'license_risk']]
+                .rename(columns={
+                    'software_name': 'Tên Phần mềm',
+                    'expiry_date': 'Ngày hết hạn',
+                    'used_quantity': 'Đã dùng',
+                    'total_quantity': 'Tổng cấp',
+                    'remaining': 'Còn lại',
+                    'license_risk': 'Trạng thái'
+                }),
+                use_container_width=True, hide_index=True
+            )
+        else:
+            st.success("Tất cả bản quyền đang ở trạng thái an toàn.")
+
+def render_usage_details(supabase):
+    st.header("👥 Truy xuất Chi tiết Cấp phát License & Nhân sự")
+    
+    try:
+        # Tải dữ liệu
+        df_assets = pd.DataFrame(supabase.table("assets").select("*").execute().data)
+        df_staff = pd.DataFrame(supabase.table("staff").select("employee_code, full_name, department, branch").execute().data)
+
+        if not df_assets.empty and not df_staff.empty:
+            # Join dữ liệu Assets và Staff
+            df_final = pd.merge(df_assets, df_staff, left_on='assigned_to_code', right_on='employee_code', how='left')
+
+            # Xử lý chuỗi phần mềm
+            df_final['software_display'] = df_final['software_list'].apply(lambda x: ", ".join(x) if isinstance(x, list) else "Trống")
+
+            # Giao diện lọc
+            search_col, branch_col = st.columns([2, 1])
+            with search_col:
+                search = st.text_input("🔍 Tìm theo Mã NV, Phần mềm (Photoshop, Office...)", placeholder="Nhập từ khóa...")
+            with branch_col:
+                branches = [b for b in df_final['branch'].unique() if b]
+                branch_sel = st.multiselect("Lọc theo Vùng miền", options=branches, default=branches)
+
+            # Logic lọc
+            mask = df_final['branch'].isin(branch_sel)
+            if search:
+                mask = mask & (
+                    df_final['full_name'].str.contains(search, case=False, na=False) |
+                    df_final['software_display'].str.contains(search, case=False) |
+                    df_final['assigned_to_code'].astype(str).str.contains(search)
+                )
+
+            # Hiển thị bảng đúng như format yêu cầu (Bỏ Cấu hình)
+            st.dataframe(
+                df_final[mask][[
+                    'asset_tag', 'assigned_to_code', 'full_name', 'department', 'branch', 'software_display', 'status'
+                ]].rename(columns={
+                    'asset_tag': 'Mã Máy',
+                    'assigned_to_code': 'Mã NV',
+                    'full_name': 'Tên Nhân Viên',
+                    'department': 'Phòng Ban',
+                    'branch': 'Vùng miền',
+                    'software_display': 'Bản quyền đang dùng',
+                    'status': 'Trạng thái'
+                }),
+                use_container_width=True, hide_index=True
+            )
+    except Exception as e:
+        st.error(f"Lỗi: {e}")
