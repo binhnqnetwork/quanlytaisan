@@ -23,8 +23,7 @@ def render_dashboard(supabase):
 
     # 2. XỬ LÝ AI METRICS
     if not df_assets.empty:
-        metrics, df_ai, lic_ai, b_stats, d_stats, u_stats = calculate_ai_metrics(df_assets, df_maint, df_lic)
-
+        metrics, df_ai, lic_ai, b_stats, d_stats, u_stats = ai_engine.calculate_ai_metrics(df_assets, df_maint, df_lic, df_staff)
         # 3. KPI CARDS
         st.markdown("---")
         m_col1, m_col2, m_col3, m_col4, m_col5 = st.columns(5)
