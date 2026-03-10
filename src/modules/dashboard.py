@@ -4,15 +4,11 @@ import plotly.express as px
 from . import ai_engine
 
 def render_dashboard(supabase, key_prefix="main"):
-    """
-    Hệ thống Dashboard đa năng. 
-    Tham số key_prefix giúp tránh lỗi Duplicate Element ID.
-    """
-    st.markdown("### 🏢 Enterprise Asset Management System")
+    st.markdown(f"### 🏢 Hệ Thống Quản Trị Tài Sản Doanh Nghiệp")
 
     try:
-        # 1. FETCH DATA
-        with st.spinner("Đang truy xuất dữ liệu..."):
+        # 1. TRUY XUẤT DỮ LIỆU
+        with st.spinner("Đang đồng bộ dữ liệu hệ thống..."):
             res_assets = supabase.table("assets").select("*").execute()
             res_staff = supabase.table("staff").select("*").execute()
             res_lic = supabase.table("licenses").select("*").execute()
@@ -26,13 +22,12 @@ def render_dashboard(supabase, key_prefix="main"):
             return
 
         # -------------------------------------------------
-        # 2. CHUẨN HÓA DỮ LIỆU & MAP NHÂN SỰ (PRO LOGIC)
+        # 2. CHUẨN HÓA DỮ LIỆU & MERGE (LOGIC CHỐNG SAI LỆCH)
         # -------------------------------------------------
-        # Làm sạch mã gán (Chuyển các giá trị trống về None để Merge chuẩn xác)
         df_assets['assigned_to_code'] = df_assets['assigned_to_code'].astype(str).replace(['None', 'nan', '<NA>', ''], None).str.strip()
         df_staff['employee_code'] = df_staff['employee_code'].astype(str).str.strip()
 
-        # Merge lấy thông tin nhân sự từ bảng Staff sang bảng Assets
+        # Map dữ liệu nhân sự
         df_main = pd.merge(
             df_assets, 
             df_staff[['employee_code', 'full_name', 'department', 'branch']], 
@@ -41,107 +36,112 @@ def render_dashboard(supabase, key_prefix="main"):
             how='left'
         )
 
-        # XỬ LÝ NHÃN CHO MÁY TRONG KHO (CHỈ FILLNA CHO DÒNG TRỐNG)
-        mask_in_stock = df_main['assigned_to_code'].isna()
-        df_main.loc[mask_in_stock, 'full_name'] = '📦 Kho tổng / Hệ thống'
-        df_main.loc[mask_in_stock, 'department'] = 'Hạ tầng (Kho)'
-        df_main.loc[mask_in_stock, 'branch'] = 'Chưa gán'
+        # Xử lý các dòng chưa gán nhân viên (Máy trong kho)
+        mask_stock = df_main['assigned_to_code'].isna()
+        df_main.loc[mask_stock, 'full_name'] = '📦 Kho tổng / Hệ thống'
+        df_main.loc[mask_stock, 'department'] = 'Lưu kho'
+        df_main.loc[mask_stock, 'branch'] = 'Chưa gán'
 
         # -------------------------------------------------
-        # 3. FILTERS (Sử dụng key_prefix)
+        # 3. SIDEBAR: ĐIỀU KHIỂN & BỘ LỌC THÔNG MINH
         # -------------------------------------------------
         with st.sidebar:
-            st.header("🎯 Điều khiển Dashboard")
+            st.image("https://cdn-icons-png.flaticon.com/512/1063/1063376.png", width=80)
+            st.header("🎯 Bộ lọc dữ liệu")
             
-            # Lấy danh sách duy nhất và loại bỏ giá trị rác
-            branches = ["Tất cả"] + sorted([x for x in df_main['branch'].unique() if pd.notna(x)])
-            sel_branch = st.selectbox("Chi nhánh", branches, key=f"{key_prefix}_branch")
+            with st.expander("📍 Vị trí & Phòng ban", expanded=True):
+                branches = ["Tất cả"] + sorted([x for x in df_main['branch'].unique() if pd.notna(x)])
+                sel_branch = st.selectbox("Chi nhánh", branches, key=f"{key_prefix}_br")
+                
+                depts = ["Tất cả"] + sorted([x for x in df_main['department'].unique() if pd.notna(x)])
+                sel_dept = st.selectbox("Phòng ban", depts, key=f"{key_prefix}_de")
             
-            depts = ["Tất cả"] + sorted([x for x in df_main['department'].unique() if pd.notna(x)])
-            sel_dept = st.selectbox("Phòng ban", depts, key=f"{key_prefix}_dept")
-            
-            types = ["Tất cả"] + sorted([x for x in df_main['type'].unique() if pd.notna(x)])
-            sel_type = st.selectbox("Loại tài sản", types, key=f"{key_prefix}_type")
+            with st.expander("🖥️ Loại thiết bị", expanded=True):
+                types = ["Tất cả"] + sorted([x for x in df_main['type'].unique() if pd.notna(x)])
+                sel_type = st.selectbox("Loại tài sản", types, key=f"{key_prefix}_ty")
 
-        # 4. SEARCH (Tìm theo mã máy hoặc tên người dùng)
-        search_query = st.text_input("🔍 Tìm kiếm tài sản", 
-                                     placeholder="Nhập mã máy hoặc tên nhân viên...", 
-                                     key=f"{key_prefix}_search")
+            st.markdown("---")
+            # Nút xuất báo cáo chuyên nghiệp
+            if st.button("📥 Xuất báo cáo Excel", use_container_width=True):
+                st.toast("Đang khởi tạo file báo cáo...")
 
-        # Áp dụng logic lọc dữ liệu
+        # 4. LOGIC LỌC
         df_filtered = df_main.copy()
         if sel_branch != "Tất cả": df_filtered = df_filtered[df_filtered['branch'] == sel_branch]
         if sel_dept != "Tất cả": df_filtered = df_filtered[df_filtered['department'] == sel_dept]
         if sel_type != "Tất cả": df_filtered = df_filtered[df_filtered['type'] == sel_type]
-        
-        if search_query:
-            df_filtered = df_filtered[
-                df_filtered['asset_tag'].str.contains(search_query, case=False, na=False) |
-                df_filtered['full_name'].str.contains(search_query, case=False, na=False)
-            ]
 
         # -------------------------------------------------
-        # 5. AI ENGINE INTEGRATION & BẢO TOÀN DỮ LIỆU
+        # 5. AI ENGINE & PHÂN TÍCH RỦI RO
         # -------------------------------------------------
-        df_lic = pd.DataFrame(res_lic.data)
-        df_maint = pd.DataFrame(res_maint.data)
-
-        # Gọi Engine AI để tính toán mức độ rủi ro
         metrics, df_ai, lic_ai, b_stats, d_stats, u_stats = ai_engine.calculate_ai_metrics(
-            df_filtered, df_maint, df_lic, df_staff
+            df_filtered, pd.DataFrame(res_maint.data), pd.DataFrame(res_lic.data), df_staff
         )
 
-        # KIỂM TRA: Nếu AI Engine làm mất các cột Personel, ta map lại ngay
+        # Đảm bảo giữ lại metadata sau khi qua AI
         for col in ['full_name', 'department', 'branch']:
             if col not in df_ai.columns:
                 df_ai = pd.merge(df_ai, df_main[['asset_tag', col]], on='asset_tag', how='left')
 
         # -------------------------------------------------
-        # 6. HIỂN THỊ (KPI & DRILL-DOWN)
+        # 6. GIAO DIỆN HIỂN THỊ CHUYÊN NGHIỆP
         # -------------------------------------------------
-        st.markdown("---")
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Tổng thiết bị", len(df_filtered))
-        k2.metric("🚨 Nguy cấp", metrics.get("critical_assets", 0))
-        k3.metric("🔑 Bản quyền lỗi", metrics.get("license_alerts", 0))
-        k4.metric("⚙️ MTTR (Avg)", metrics.get("mttr", "N/A"))
+        
+        # SEARCH BAR (Nổi bật)
+        search = st.text_input("🔍 Tra cứu nhanh tài sản", placeholder="Nhập mã máy hoặc tên nhân viên...", key=f"{key_prefix}_se")
+        if search:
+            df_ai = df_ai[df_ai['asset_tag'].str.contains(search, case=False) | df_ai['full_name'].str.contains(search, case=False)]
+
+        # KPI METRICS
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Tổng thiết bị", f"{len(df_filtered)} máy")
+        m2.metric("🚨 Nguy cấp", metrics.get("critical_assets", 0), delta="Rủi ro", delta_color="inverse")
+        m3.metric("🔑 Bản quyền", metrics.get("license_alerts", 0), delta="Hết hạn")
+        m4.metric("⚙️ Hiệu suất (MTTR)", f"{metrics.get('mttr', 0)}h")
 
         st.markdown("---")
-        col_pie, col_table = st.columns([4, 6]) 
+
+        # CHI TIẾT PHÂN TÍCH (Charts)
+        c_left, c_right = st.columns([5, 5])
         
-        with col_pie:
-            st.subheader("📊 Mức độ rủi ro (AI)")
-            fig = px.pie(
-                df_ai, names='risk_level', hole=0.6,
+        with c_left:
+            st.subheader("📊 Phân bổ Rủi ro (AI)")
+            fig_pie = px.pie(
+                df_ai, names='risk_level', hole=0.5,
                 color='risk_level',
                 color_discrete_map={
-                    "🔴 Nguy cấp": "#FF4B4B", "🟠 Cao": "#FFA500", 
-                    "🟡 Trung bình": "#F0E68C", "🟢 Thấp": "#28A745"
+                    "🔴 Nguy cấp": "#EF5350", "🟠 Cao": "#FFA726", 
+                    "🟡 Trung bình": "#FFEE58", "🟢 Thấp": "#66BB6A"
                 }
             )
-            fig.update_layout(margin=dict(t=20, b=20, l=0, r=0), showlegend=True)
-            st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_pie_chart")
+            fig_pie.update_layout(margin=dict(t=30, b=0, l=0, r=0), legend=dict(orientation="h", y=-0.1))
+            st.plotly_chart(fig_pie, use_container_width=True)
 
-        with col_table:
-            st.subheader("📋 Danh sách Drill-down")
-            
-            # Hiển thị 5 cột thông tin cốt lõi
-            display_df = df_ai[[
-                'asset_tag', 
-                'full_name', 
-                'department', 
-                'branch', 
-                'risk_level'
-            ]].copy()
+        with c_right:
+            st.subheader("🏢 Phân bổ theo Chi nhánh")
+            # Biểu đồ cột ngang cho thấy chi nhánh nào đang sở hữu nhiều tài sản nhất
+            branch_counts = df_ai['branch'].value_counts().reset_index()
+            fig_bar = px.bar(branch_counts, x='count', y='branch', orientation='h', color='branch', color_discrete_sequence=px.colors.qualitative.Pastel)
+            fig_bar.update_layout(showlegend=False, margin=dict(t=30, b=0, l=0, r=0))
+            st.plotly_chart(fig_bar, use_container_width=True)
 
-            display_df.columns = ['Mã máy', 'Tên nhân viên', 'Phòng ban', 'Chi nhánh', 'Rủi ro']
+        # DRILL-DOWN TABLE (Bản nâng cấp)
+        st.markdown("### 📋 Danh sách Drill-down Chi tiết")
+        
+        # Styling cho bảng rực rỡ hơn
+        def color_risk(val):
+            color = '#66BB6A' if 'Thấp' in val else '#FFEE58' if 'Trung bình' in val else '#FFA726' if 'Cao' in val else '#EF5350'
+            return f'color: {color}; font-weight: bold'
 
-            st.dataframe(
-                display_df,
-                use_container_width=True,
-                hide_index=True,
-                height=400
-            )
+        display_df = df_ai[['asset_tag', 'full_name', 'department', 'branch', 'risk_level']].copy()
+        display_df.columns = ['Mã máy', 'Nhân viên', 'Phòng ban', 'Chi nhánh', 'Mức độ rủi ro']
+
+        st.dataframe(
+            display_df.style.applymap(color_risk, subset=['Mức độ rủi ro']),
+            use_container_width=True,
+            hide_index=True,
+            height=450
+        )
 
     except Exception as e:
         st.error(f"❌ Lỗi Dashboard: {str(e)}")
