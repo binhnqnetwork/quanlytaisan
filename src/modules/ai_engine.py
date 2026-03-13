@@ -73,27 +73,37 @@ def calculate_ai_metrics(df_assets, df_maint, df_lic, df_staff=None):
 
     # -------------------------------------------------
     # -------------------------------------------------
-    # 4. XỬ LÝ THỜI GIAN (FIX LỖI TZ-AWARE/NAIVE)
     # -------------------------------------------------
-    # Lấy thời gian hiện tại không múi giờ để đồng bộ
+    # 4. XỬ LÝ THỜI GIAN & BẢO TRÌ (ĐÃ FIX LỖI M_COUNT)
+    # -------------------------------------------------
     now_naive = pd.Timestamp.now().replace(tzinfo=None)
 
+    # Đảm bảo có m_count trước khi tính toán bất cứ thứ gì
+    if 'maintenance_history' in df_ai_base.columns:
+        df_ai_base['m_count'] = df_ai_base['maintenance_history'].apply(
+            lambda x: len(x) if isinstance(x, list) else 0
+        )
+    else:
+        df_ai_base['m_count'] = 0
+
+    # Xử lý thời gian (Fix lỗi TZ như đã làm)
     if 'created_at' in df_ai_base.columns:
-        # Chuyển created_at về datetime, ép về UTC rồi xóa múi giờ (.dt.tz_localize(None))
         df_ai_base["created_at"] = (
             pd.to_datetime(df_ai_base["created_at"], errors="coerce")
-            .dt.tz_localize(None) 
+            .dt.tz_localize(None)
             .fillna(now_naive)
         )
     else:
         df_ai_base["created_at"] = now_naive
     
-    # Lúc này cả hai đều là naive, phép trừ sẽ không lỗi
     df_ai_base["age_days"] = (now_naive - df_ai_base["created_at"]).dt.days
 
     # -------------------------------------------------
-    # 5. RISK MODEL (MÔ HÌNH RỦI RO)
+    # 5. RISK MODEL (SỬ DỤNG M_COUNT AN TOÀN)
     # -------------------------------------------------
+    # Lúc này m_count chắc chắn tồn tại nên không bao giờ lỗi KeyError nữa
+    fail_factor = np.minimum(df_ai_base["m_count"] / 4, 1.0)
+    # ... các phần còn lại giữ nguyên
     def get_spec_risk(spec_val):
         s = str(spec_val).lower()
         score = 0.5
