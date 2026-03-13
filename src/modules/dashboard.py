@@ -24,26 +24,33 @@ def render_dashboard(supabase, key_prefix="main"):
             return
 
         # -------------------------------------------------
-        # -------------------------------------------------
-        # 2. CHUẨN HÓA DỮ LIỆU (OPTIMIZED)
+        # 2. CHUẨN HÓA DỮ LIỆU
         # -------------------------------------------------
 
-        # Hàm nội bộ để làm sạch mã: xóa .0, xóa 0 ở đầu, xóa khoảng trắng
-        def clean_and_strip_zeros(s):
-            if pd.isna(s): return pd.NA
-            # Chuyển về string, xóa .0 (nếu có do float), xóa khoảng trắng
-            s = str(s).split('.')[0].strip()
-            # Xóa các số 0 ở đầu (Regex của bạn rất tốt)
-            s = s.lstrip('0')
-            return s if s != "" else "0" # Tránh trường hợp mã là '000'
+        # chuẩn hóa mã nhân viên
+        df_assets['assigned_to_code'] = (
+            df_assets['assigned_to_code']
+            .astype("string")
+            .str.strip()
+            .str.replace("^0+", "", regex=True)
+        )
 
-        df_assets['assigned_to_code'] = df_assets['assigned_to_code'].apply(clean_and_strip_zeros).astype("string")
-        df_staff['employee_code'] = df_staff['employee_code'].apply(clean_and_strip_zeros).astype("string")
+        df_staff['employee_code'] = (
+            df_staff['employee_code']
+            .astype("string")
+            .str.strip()
+            .str.replace("^0+", "", regex=True)
+        )
+
+        # thay giá trị rác
+        df_assets['assigned_to_code'] = df_assets['assigned_to_code'].replace(
+            ['nan', 'None', 'null', ''], pd.NA
+        )
 
         # -------------------------------------------------
-        # MERGE DỮ LIỆU (Đảm bảo không bị trùng cột)
+        # MERGE DỮ LIỆU
         # -------------------------------------------------
-        # Dùng validate='m:1' để đảm bảo 1 tài sản chỉ thuộc về tối đa 1 nhân viên
+
         df_main = pd.merge(
             df_assets,
             df_staff[['employee_code', 'full_name', 'department', 'branch']],
