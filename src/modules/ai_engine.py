@@ -72,25 +72,24 @@ def calculate_ai_metrics(df_assets, df_maint, df_lic, df_staff=None):
     df_ai_base.loc[mask_mismatch, 'branch'] = 'Chưa xác định'
 
     # -------------------------------------------------
-    # 4. XỬ LÝ THỜI GIAN & BẢO TRÌ
     # -------------------------------------------------
-    now = pd.Timestamp.now(tz="UTC")
+    # 4. XỬ LÝ THỜI GIAN (FIX LỖI TZ-AWARE/NAIVE)
+    # -------------------------------------------------
+    # Lấy thời gian hiện tại không múi giờ để đồng bộ
+    now_naive = pd.Timestamp.now().replace(tzinfo=None)
 
-    # Xử lý ngày tạo
     if 'created_at' in df_ai_base.columns:
-        df_ai_base["created_at"] = pd.to_datetime(df_ai_base["created_at"], errors="coerce", utc=True).fillna(now)
-    else:
-        df_ai_base["created_at"] = now
-    
-    df_ai_base["age_days"] = (now - df_ai_base["created_at"]).dt.days
-
-    # Xử lý số lần bảo trì
-    if 'maintenance_history' in df_ai_base.columns:
-        df_ai_base['m_count'] = df_ai_base['maintenance_history'].apply(
-            lambda x: len(x) if isinstance(x, list) else 0
+        # Chuyển created_at về datetime, ép về UTC rồi xóa múi giờ (.dt.tz_localize(None))
+        df_ai_base["created_at"] = (
+            pd.to_datetime(df_ai_base["created_at"], errors="coerce")
+            .dt.tz_localize(None) 
+            .fillna(now_naive)
         )
     else:
-        df_ai_base['m_count'] = 0
+        df_ai_base["created_at"] = now_naive
+    
+    # Lúc này cả hai đều là naive, phép trừ sẽ không lỗi
+    df_ai_base["age_days"] = (now_naive - df_ai_base["created_at"]).dt.days
 
     # -------------------------------------------------
     # 5. RISK MODEL (MÔ HÌNH RỦI RO)
