@@ -87,24 +87,25 @@ def calculate_ai_metrics(df_assets, df_maint, df_lic, df_staff=None):
     df_ai_base.loc[mask_mismatch, 'branch'] = 'Chưa xác định'
 
     # -------------------------------------------------
-    # THỜI GIAN
-    # -------------------------------------------------
+   # -------------------------------------------------
+# THỜI GIAN
+# -------------------------------------------------
 
-    now = pd.Timestamp.utcnow()
+now = pd.Timestamp.now(tz="UTC")
 
-    if 'created_at' in df_ai_base.columns:
+if 'created_at' in df_ai_base.columns:
 
-        df_ai_base["created_at"] = pd.to_datetime(
-            df_ai_base["created_at"],
-            errors="coerce",
-            utc=True
-        ).fillna(now)
+    df_ai_base["created_at"] = pd.to_datetime(
+        df_ai_base["created_at"],
+        errors="coerce",
+        utc=True
+    ).fillna(now)
 
-    else:
+else:
 
-        df_ai_base["created_at"] = now
+    df_ai_base["created_at"] = now
 
-    df_ai_base["age_days"] = (now - df_ai_base["created_at"]).dt.days
+df_ai_base["age_days"] = (now - df_ai_base["created_at"]).dt.days
 
     # -------------------------------------------------
     # MAINTENANCE
