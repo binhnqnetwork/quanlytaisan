@@ -55,9 +55,6 @@ def calculate_ai_metrics(df_assets, df_maint=None, df_lic=None, df_staff=None):
 
         # Merge dữ liệu
 # Chèn vào ngay trước dòng pd.merge
- print("DEBUG - Assets Keys Sample:", df_assets['key_join'].dropna().unique()[:5])
- print("DEBUG - Staff Keys Sample:", staff_lookup['key_staff'].dropna().unique()[:5])
- print("DEBUG - Data Types:", type(df_assets['key_join'].iloc[0]), type(staff_lookup['key_staff'].iloc[0]))
         
 df_ai_base = pd.merge(...)       
         df_ai_base = pd.merge(
