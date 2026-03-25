@@ -159,14 +159,82 @@ def render_inventory(supabase):
                     except Exception as e:
                         st.error(f"Lỗi Database: {e}")
 
-    # --- 4. DANH MỤC TỔNG QUÁT ---
-    st.markdown("### 📋 Danh mục tài sản")
-    vung_filter = st.segmented_control("Lọc theo vùng:", ["Tất cả"] + list(branch_map.keys()), default="Tất cả")
-    query = supabase.table("assets").select("*")
-    if vung_filter != "Tất cả":
-        query = query.ilike("asset_tag", f"%-{branch_map[vung_filter]}")
+    # --- 4. DANH MỤC TỔNG QUÁT (ENTERPRISE VERSION) ---
+    st.markdown("---")
+    st.markdown("### 📋 Hệ thống Quản lý Tài sản Chi tiết")
     
-    assets_data = query.execute()
-    if assets_data.data:
-        df = pd.DataFrame(assets_data.data)
-        st.dataframe(df[['asset_tag', 'type', 'status', 'assigned_to_code']], use_container_width=True)
+    # Bộ lọc nhanh theo vùng bằng Segmented Control
+    vung_filter = st.segmented_control(
+        "Lọc theo vùng miền:", 
+        ["Tất cả Chi nhánh"] + list(branch_map.keys()), 
+        default="Tất cả Chi nhánh"
+    )
+
+    # 1. Truy vấn dữ liệu Gốc
+    with st.spinner("Đang truy xuất danh mục..."):
+        # Lấy toàn bộ Assets
+        res_assets = supabase.table("assets").select("*").execute()
+        # Lấy toàn bộ Staff để map thông tin
+        res_staff = supabase.table("staff").select("employee_code, full_name, department, branch").execute()
+        
+    if res_assets.data:
+        df_a = pd.DataFrame(res_assets.data)
+        df_s = pd.DataFrame(res_staff.data)
+
+        # 2. Xử lý Join dữ liệu (Mapping Staff info vào Assets)
+        # Ép kiểu string để tránh lỗi merge do sai định dạng mã
+        df_a['assigned_to_code'] = df_a['assigned_to_code'].astype(str).str.strip()
+        df_s['employee_code'] = df_s['employee_code'].astype(str).str.strip()
+
+        df_final = pd.merge(
+            df_a, 
+            df_s, 
+            left_on='assigned_to_code', 
+            right_on='employee_code', 
+            how='left'
+        )
+
+        # 3. Chuẩn hóa dữ liệu hiển thị (Format Enterprise)
+        # Xử lý các máy trong kho
+        mask_in_stock = (df_final['assigned_to_code'] == 'None') | (df_final['assigned_to_code'].isna())
+        df_final.loc[mask_in_stock, 'full_name'] = "📦 Kho tổng"
+        df_final.loc[mask_in_stock, 'department'] = "Hạ tầng"
+        df_final.loc[mask_in_stock, 'branch'] = "Toàn quốc"
+
+        # Định dạng cột Phần mềm (Chuyển list thành chuỗi có dấu phẩy hoặc nhãn)
+        df_final['software_list'] = df_final['software_list'].apply(
+            lambda x: ", ".join(x) if isinstance(x, list) and len(x) > 0 else "---"
+        )
+
+        # 4. Áp dụng bộ lọc vùng
+        if vung_filter != "Tất cả Chi nhánh":
+            suffix = branch_map[vung_filter]
+            df_final = df_final[df_final['asset_tag'].str.contains(f"-{suffix}", na=False)]
+
+        # 5. Cấu hình hiển thị Pro với st.column_config
+        st.dataframe(
+            df_final[[
+                'asset_tag', 'type', 'full_name', 'department', 
+                'branch', 'status', 'software_list'
+            ]],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "asset_tag": st.column_config.TextColumn("🔖 Mã máy", help="Mã định danh duy nhất"),
+                "type": st.column_config.TextColumn("🖥️ Loại"),
+                "full_name": st.column_config.TextColumn("👤 Nhân viên sở hữu"),
+                "department": st.column_config.TextColumn("🏢 Phòng ban"),
+                "branch": st.column_config.TextColumn("📍 Chi nhánh"),
+                "status": st.column_config.SelectboxColumn(
+                    "📊 Trạng thái",
+                    options=["Trong kho", "Đang sử dụng", "Bảo trì", "Thanh lý"]
+                ),
+                "software_list": st.column_config.TextColumn("📜 License gán kèm", help="Danh sách bản quyền đã kích hoạt trên máy")
+            }
+        )
+
+        # Thống kê nhanh dưới bảng
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Tổng thiết bị", len(df_final))
+        c2.metric("Đang cấp phát", len(df_final[df_final['status'] == 'Đang sử dụng']))
+        c3.metric("Sẵn sàng trong kho", len(df_final[df_final['status'] == 'Trong kho']))
