@@ -1,107 +1,59 @@
 import pandas as pd
 import numpy as np
-import re
 
 def calculate_ai_metrics(df_assets, df_maint=None, df_lic=None, df_staff=None):
-    # =====================================================
-    # 1. KHỞI TẠO HỆ THỐNG
-    # =====================================================
-    ai_metrics = {
-        "mtbf": "N/A", "mttr": "N/A", 
-        "critical_assets": 0, "high_risk_assets": 0, "license_alerts": 0
-    }
-    empty = pd.DataFrame()
-
+    # 1. Khởi tạo cấu trúc trả về
+    ai_metrics = {"mtbf": "N/A", "mttr": "N/A", "critical_assets": 0, "high_risk_assets": 0, "license_alerts": 0}
     if df_assets is None or df_assets.empty:
-        return ai_metrics, empty, empty, empty, empty, empty
+        return ai_metrics, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     df_assets = df_assets.copy()
 
-    # =====================================================
-    # 2. HÀM CHUẨN HÓA TRIỆT ĐỂ (THE FINAL FIX)
-    # =====================================================
-    def ultra_normalize(series):
+    # 2. HÀM CHUẨN HÓA CƯỠNG CHẾ (APPLE STYLE: SIMPLICITY & PRECISION)
+    def clean_key(series):
         if series is None: return pd.Series(dtype="object")
         return (
-            series.astype(str)
-            .str.strip()
-            .str.replace(r"\.0$", "", regex=True) # Xử lý số float bị biến thành chuỗi
-            .str.extract(r'(\d+)', expand=False)  # CHỈ trích xuất số, bỏ qua mọi ký tự lạ ẩn
-            .replace(["nan", "None", "", "<NA>"], np.nan)
+            series.astype(str)                  # Ép tất cả về chuỗi
+            .str.replace(r'\.0$', '', regex=True) # Xóa đuôi số thập phân .0
+            .str.strip()                        # Xóa khoảng trắng thừa
+            .replace(['nan', 'None', '<NA>', ''], np.nan)
         )
 
-    # Sao lưu thông tin phòng ban/chi nhánh gốc từ database Assets
-    if "department" in df_assets.columns:
-        df_assets["orig_dept"] = df_assets["department"]
-    if "branch" in df_assets.columns:
-        df_assets["orig_branch"] = df_assets["branch"]
-
-    # Tạo khóa liên kết sạch
-    df_assets["key_join"] = ultra_normalize(df_assets["assigned_to_code"])
-
-    # =====================================================
-    # 3. KẾT NỐI VỚI BẢNG NHÂN VIÊN (STAFF MERGE)
-    # =====================================================
+    # 3. CHUẨN HÓA KHÓA Ở CẢ HAI BẢNG TRƯỚC KHI MERGE
+    df_assets['link_key'] = clean_key(df_assets['assigned_to_code'])
+    
     if df_staff is not None and not df_staff.empty:
         df_staff = df_staff.copy()
-        df_staff["key_staff"] = ultra_normalize(df_staff["employee_code"])
+        df_staff['staff_key'] = clean_key(df_staff['employee_code'])
         
-        # Chỉ lấy các cột định danh quan trọng để tránh trùng lặp máy
-        staff_lookup = (
-            df_staff[["key_staff", "full_name", "department", "branch"]]
-            .drop_duplicates("key_staff")
-        )
-
-        # Thực hiện Left Join
-        df_ai_base = pd.merge(
-            df_assets,
-            staff_lookup,
-            left_on="key_join",
-            right_on="key_staff",
-            how="left"
-        )
+        # Tạo bảng tra cứu nhân viên sạch (không trùng lặp)
+        staff_lookup = df_staff[['staff_key', 'full_name', 'department', 'branch']].drop_duplicates('staff_key')
+        
+        # THỰC HIỆN KẾT NỐI (MERGE)
+        df_final = pd.merge(df_assets, staff_lookup, left_on='link_key', right_on='staff_key', how='left')
     else:
-        df_ai_base = df_assets.copy()
-        for col in ["full_name", "department", "branch"]:
-            df_ai_base[col] = np.nan
+        df_final = df_assets.copy()
+        df_final['full_name'] = np.nan
 
-    # =====================================================
-    # 4. ENGINE PHÂN LOẠI HIỂN THỊ
-    # =====================================================
-    # Kiểm tra mã thô để phân biệt máy rỗng (Kho) và máy gán lỗi
-    raw_val = (
-        df_ai_base["assigned_to_code"]
-        .astype(str).str.strip()
-        .replace(["nan", "None", "", "<NA>"], np.nan)
-    )
-    is_empty_code = raw_val.isna()
+    # 4. XỬ LÝ LOGIC HIỂN THỊ (THE FINAL POLISH)
+    # Xác định dòng nào thực sự trống mã (như PC0001-HCM)
+    is_empty_code = df_final['link_key'].isna()
 
-    # --- CASE A: KHO TỔNG / HỆ THỐNG (PC0001-HCM rơi vào đây) ---
-    mask_stock = is_empty_code
-    df_ai_base.loc[mask_stock, "full_name"] = "📦 Kho tổng / Hệ thống"
-    
-    # Khôi phục dữ liệu gốc từ Assets cho máy kho
-    if "orig_dept" in df_ai_base.columns:
-        df_ai_base.loc[mask_stock, "department"] = df_ai_base.loc[mask_stock, "orig_dept"].fillna("Lưu kho")
-    else:
-        df_ai_base.loc[mask_stock, "department"] = "Lưu kho"
-    
-    df_ai_base.loc[mask_stock, "branch"] = "Toàn quốc"
+    # Nhánh 1: Xử lý Máy Kho (Mã rỗng)
+    df_final.loc[is_empty_code, 'full_name'] = "📦 Kho tổng / Hệ thống"
+    df_final.loc[is_empty_code, 'department'] = df_final.loc[is_empty_code, 'department'].fillna("Hạ tầng") # Giữ lại "Hạ tầng"
+    df_final.loc[is_empty_code, 'branch'] = "Toàn quốc"
 
-    # --- CASE B: LỖI MÃ (Mã có tồn tại nhưng Merge thất bại) ---
-    mask_error = (~is_empty_code) & (df_ai_base["full_name"].isna())
-    df_ai_base.loc[mask_error, "full_name"] = "⚠️ Lỗi: Mã " + df_ai_base["assigned_to_code"].astype(str)
-    df_ai_base.loc[mask_error, "department"] = "Cần rà soát"
-    df_ai_base.loc[mask_error, "branch"] = "Chưa xác định"
+    # Nhánh 2: Xử lý Lỗi (Có mã nhưng Merge thất bại)
+    mask_error = (~is_empty_code) & (df_final['full_name'].isna())
+    df_final.loc[mask_error, 'full_name'] = "⚠️ Lỗi: Mã " + df_final['assigned_to_code'].astype(str)
+    df_final.loc[mask_error, 'department'] = "Cần rà soát"
+    df_final.loc[mask_error, 'branch'] = "Chưa xác định"
 
-    # =====================================================
-    # 5. TÍNH TOÁN RỦI RO & THỐNG KÊ (KPI)
-    # =====================================================
-    df_ai_base["risk_score"] = 0.2
-    df_ai_base["risk_level"] = "🟢 Thấp"
+    # 5. TẠO CÁC BẢNG THỐNG KÊ
+    df_final['risk_level'] = "🟢 Thấp"
+    branch_stats = df_final.groupby('branch').size().reset_index(name='asset_count')
+    dept_stats = df_final.groupby('department').size().reset_index(name='asset_count')
+    user_stats = df_final.groupby('full_name').size().reset_index(name='assets').sort_values('assets', ascending=False)
 
-    branch_stats = df_ai_base.groupby("branch").size().reset_index(name="asset_count")
-    dept_stats = df_ai_base.groupby("department").size().reset_index(name="asset_count")
-    user_stats = df_ai_base.groupby("full_name").size().reset_index(name="assets").sort_values("assets", ascending=False)
-
-    return ai_metrics, df_ai_base, empty, branch_stats, dept_stats, user_stats
+    return ai_metrics, df_final, pd.DataFrame(), branch_stats, dept_stats, user_stats
