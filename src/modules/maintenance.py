@@ -18,7 +18,7 @@ def render_maintenance(supabase):
 
     # --- 2. TRUY VẤN DỮ LIỆU ---
     # Lấy dữ liệu log và join với bảng assets để lấy Asset Tag
-    res = supabase.table("maintenance_log").select("*, assets(asset_tag)").order("performed_at", desc=True).execute()
+    res = supabase.table("maintenance_log").select("*, assets!fk_assets(asset_tag)").order("performed_at", desc=True).execute()
     logs_df = pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
     # --- 3. HỆ THỐNG CẢNH BÁO CHUYÊN SÂU (PROACTIVE) ---
