@@ -134,13 +134,17 @@ def render_ai_advisor(supabase):
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    # DANH SÁCH CHI TIẾT
+    # DANH SÁCH CHI TIẾT (Đã sửa lỗi Color)
     st.markdown("### 📋 Danh sách chỉ định từ AI")
     st.data_editor(
         df_ai,
         column_config={
             "Rủi ro (%)": st.column_config.ProgressColumn(
-                "Mức độ rủi ro", min_value=0, max_value=100, format="%d%%", color="purple"
+                "Mức độ rủi ro", 
+                min_value=0, 
+                max_value=100, 
+                format="%d%%", 
+                color="#764ba2"  # <--- THAY 'purple' THÀNH MÃ HEX NÀY
             ),
             "Khuyến nghị": st.column_config.TextColumn("Hành động đề xuất"),
             "Chi tiết phân tích": st.column_config.TextColumn("Lý do hệ thống", width="large")
