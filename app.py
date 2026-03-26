@@ -11,32 +11,79 @@ if current_dir not in sys.path:
 # 2. IMPORT MODULES
 try:
     from src.database.client import get_supabase
-    # THÊM 'ai_advisor' VÀO DANH SÁCH IMPORT
     from src.modules import (
         dashboard, inventory, servers, licenses, 
-        vault, auth, maintenance, ai_advisor # <--- Thêm ở đây
+        vault, auth, maintenance, ai_advisor 
     )
 except ImportError as e:
     st.error(f"❌ Lỗi cấu trúc thư mục: {e}")
     st.stop()
 
-# 3. CẤU HÌNH TRANG & GIAO DIỆN
+# 3. CẤU HÌNH TRANG & GIAO DIỆN "APPLE STYLE"
 st.set_page_config(
-    page_title="Quản lý tài sản 4 Oranges",
+    page_title="Asset Management | 4 Oranges",
     page_icon="🍊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Nhúng CSS tùy chỉnh
+# Nâng cấp giao diện bằng CSS nâng cao
 st.markdown("""
     <style>
-    .main { background-color: #f8f9fa; }
-    div[data-testid="stMetricValue"] { font-size: 24px; color: #1a73e8; }
-    /* Style cho Tab AI đặc biệt */
-    button[id*="tabs-bui3-tab-6"] {
-        background-color: #f0f2f6 !important;
-        border-bottom: 2px solid #764ba2 !important;
+    /* Tổng thể font và nền */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+    html, body, [class*="st-at"] { font-family: 'Inter', sans-serif; }
+    
+    .main { background-color: #f5f7f9; }
+
+    /* Nâng cấp Sidebar */
+    [data-testid="stSidebar"] {
+        background-color: #ffffff;
+        border-right: 1px solid #e6e9ef;
+    }
+    
+    /* Làm đẹp các Tab */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+        background-color: transparent;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        height: 45px;
+        background-color: #ffffff;
+        border-radius: 10px !important;
+        border: 1px solid #e6e9ef !important;
+        padding: 0px 20px !important;
+        font-weight: 600;
+        color: #4b5563;
+        transition: all 0.3s ease;
+    }
+
+    .stTabs [data-baseweb="tab"]:hover {
+        border-color: #ff8c00 !important;
+        color: #ff8c00;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background-color: #ff8c00 !important;
+        color: white !important;
+        border: none !important;
+        box-shadow: 0 4px 12px rgba(255, 140, 0, 0.3);
+    }
+
+    /* Hiệu ứng đặc biệt cho Tab AI */
+    .stTabs [data-baseweb="tab"]:last-child {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: white !important;
+    }
+
+    /* Metric Card */
+    div[data-testid="stMetric"] {
+        background-color: white;
+        padding: 15px;
+        border-radius: 15px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        border: 1px solid #e6e9ef;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -59,54 +106,68 @@ if "authenticated" not in st.session_state:
 if not st.session_state.authenticated:
     auth.login_page(supabase)
 else:
-    # Sidebar
+    # Sidebar: Glassmorphism Design
     with st.sidebar:
-        st.image("https://cdn-icons-png.flaticon.com/512/2592/2592261.png", width=50)
-        st.markdown(f"### 🛡️ Quản trị viên")
-        st.caption(f"Email: {st.session_state.get('user_email', 'N/A')}")
+        st.markdown("<h2 style='text-align: center;'>🍊</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; font-weight: 700; font-size: 1.2rem;'>4 ORANGES IT</p>", unsafe_allow_html=True)
         st.markdown("---")
-        if st.button("🚪 Đăng xuất", use_container_width=True):
+        
+        st.caption("Tài khoản đang đăng nhập:")
+        st.markdown(f"**{st.session_state.get('user_email', 'Admin')}**")
+        
+        st.markdown("---")
+        if st.button("🚪 Đăng xuất hệ thống", use_container_width=True):
             st.session_state.authenticated = False
             st.rerun()
-        st.info(f"🟢 **Hệ thống:** Online")
+            
+        st.markdown("<br>"*10, unsafe_allow_html=True)
+        st.divider()
+        st.caption("v2.5.0-PRO Early Access")
 
-    # Header
-    st.title("🍊 Quản lý tài sản 4 Oranges")
-    st.caption(f"Phiên bản 2.0 Pro | AI Powered | Ngày: {datetime.now().strftime('%d/%m/%Y')}")
+    # Header: Dashboard Style
+    head_col1, head_col2 = st.columns([2, 1])
+    with head_col1:
+        st.title("🍊 IT Asset Control Center")
+        st.markdown(f"Chào buổi sáng, hệ thống đang vận hành với **100% hiệu năng**.")
+    
+    with head_col2:
+        # Đồng hồ và ngày tháng nhỏ gọn bên góc
+        st.markdown(f"""
+            <div style="text-align: right; padding-top: 20px; color: #6b7280;">
+                📅 {datetime.now().strftime('%A, %d/%m/%Y')}<br>
+                🕒 Last sync: {datetime.now().strftime('%H:%M:%S')}
+            </div>
+        """, unsafe_allow_html=True)
 
-    # --- CẬP NHẬT DANH SÁCH TABS (THÊM TAB AI) ---
+    # --- HỆ THỐNG TABS ---
     tabs = st.tabs([
-        "📊 Tổng quan", 
-        "💻 Cấp phát", 
-        "🖥️ Máy chủ", 
-        "🌐 License",
-        "🛠️ Bảo trì", 
+        "📊 Dashboard", 
+        "💻 Inventory", 
+        "🖥️ Servers", 
+        "🌐 Licenses",
+        "🛠️ Maintenance", 
         "🔐 Vault",
-        "🤖 AI ADVISOR" # <--- Tab "Chốt hạ"
+        "🤖 AI ADVISOR"
     ])
 
-    # Render nội dung từng Module
-    with tabs[0]:
-        dashboard.render_dashboard(supabase)
+    # Mapping các module để tránh lặp code (Pro-tip)
+    modules = {
+        0: dashboard.render_dashboard,
+        1: inventory.render_inventory,
+        2: servers.render_servers,
+        3: licenses.render_licenses,
+        4: maintenance.render_maintenance,
+        5: vault.render_vault,
+        6: ai_advisor.render_ai_advisor
+    }
 
-    with tabs[1]:
-        inventory.render_inventory(supabase)
+    for idx, render_func in modules.items():
+        with tabs[idx]:
+            try:
+                render_func(supabase)
+            except Exception as e:
+                st.error(f"❌ Error in module {idx}: {str(e)}")
 
-    with tabs[2]:
-        servers.render_servers(supabase)
-
-    with tabs[3]:
-        licenses.render_licenses(supabase)
-
-    with tabs[4]:
-        maintenance.render_maintenance(supabase)
-
-    with tabs[5]:
-        vault.render_vault(supabase)
-
-    # --- RENDER TAB AI ADVISOR ---
-    with tabs[6]:
-        try:
-            ai_advisor.render_ai_advisor(supabase)
-        except Exception as e:
-            st.error(f"❌ Lỗi AI Engine: {e}")
+# Footer nhỏ gọn
+st.markdown("---")
+st.caption("© 2026 IT Department - 4 Oranges Co., Ltd. Confidential.")
