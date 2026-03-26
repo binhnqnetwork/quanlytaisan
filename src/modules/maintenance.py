@@ -4,93 +4,102 @@ from datetime import datetime, date, timedelta
 
 def render_maintenance(supabase):
     today = date.today()
-    st.markdown('<h1 style="font-weight: 700;">🛠️ Quản lý Bảo trì Chuyên nghiệp</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 style="font-weight: 700;">🛠️ Quản lý Bảo trì theo Đơn vị</h1>', unsafe_allow_html=True)
 
-    # --- 1. LẤY DỮ LIỆU GỐC TỪ ASSETS ĐỂ LÀM BỘ LỌC ---
-    # Lấy thêm thông tin chi nhánh và phòng ban
-    assets_raw = supabase.table("assets").select("id, asset_tag, department, branch").execute()
-    df_assets = pd.DataFrame(assets_raw.data) if assets_raw.data else pd.DataFrame()
+    # --- 1. TRUY VẤN DỮ LIỆU PHÂN CẤP (JOIN ASSETS & STAFF) ---
+    # Ta lấy asset_tag từ assets và department, branch từ staff thông qua assigned_to_code
+    # Lưu ý: Cú pháp Supabase join qua cột không phải Primary Key cần khai báo rõ
+    assets_res = supabase.table("assets").select("""
+        id, 
+        asset_tag, 
+        assigned_to_code,
+        staff!assets_assigned_to_code_fkey (
+            department,
+            branch
+        )
+    """).execute()
+    
+    # Chuyển dữ liệu về DataFrame và làm phẳng (flatten)
+    if assets_res.data:
+        raw_df = pd.DataFrame(assets_res.data)
+        # Trích xuất dữ liệu từ cột object 'staff'
+        raw_df['department'] = raw_df['staff'].apply(lambda x: x['department'] if x else "Chưa cấp phát")
+        raw_df['branch'] = raw_df['staff'].apply(lambda x: x['branch'] if x else "N/A")
+        df_assets = raw_df.drop(columns=['staff'])
+    else:
+        df_assets = pd.DataFrame()
 
-    # --- 2. FORM NHẬP LIỆU PHÂN CẤP ---
-    with st.expander("➕ Ghi nhận bảo trì theo phân cấp", expanded=True):
-        with st.form("maintenance_form_pro", clear_on_submit=True):
+    # --- 2. GIAO DIỆN LỌC PHÂN CẤP ---
+    with st.expander("➕ Ghi nhận bảo trì mới", expanded=True):
+        with st.form("maint_form_fixed", clear_on_submit=True):
+            c1, c2, c3 = st.columns(3)
             
-            # Dòng 1: Bộ lọc phân cấp
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
+            with c1:
                 branches = sorted(df_assets['branch'].unique().tolist()) if not df_assets.empty else []
-                selected_branch = st.selectbox("📍 Chọn Chi nhánh", options=["Tất cả"] + branches)
+                sel_branch = st.selectbox("📍 Chi nhánh", options=["Tất cả"] + branches)
             
-            with col2:
-                # Lọc phòng ban dựa trên chi nhánh đã chọn
-                if selected_branch != "Tất cả":
-                    filtered_deps = df_assets[df_assets['branch'] == selected_branch]['department'].unique()
-                else:
-                    filtered_deps = df_assets['department'].unique() if not df_assets.empty else []
-                selected_dept = st.selectbox("🏢 Chọn Phòng ban", options=["Tất cả"] + sorted(list(filtered_deps)))
+            with c2:
+                dep_mask = df_assets['branch'] == sel_branch if sel_branch != "Tất cả" else [True]*len(df_assets)
+                deps = sorted(df_assets[dep_mask]['department'].unique().tolist()) if not df_assets.empty else []
+                sel_dep = st.selectbox("🏢 Phòng ban", options=["Tất cả"] + deps)
 
-            with col3:
-                # Lọc mã máy dựa trên chi nhánh VÀ phòng ban
-                mask = pd.Series([True] * len(df_assets))
-                if selected_branch != "Tất cả":
-                    mask &= (df_assets['branch'] == selected_branch)
-                if selected_dept != "Tất cả":
-                    mask &= (df_assets['department'] == selected_dept)
+            with c3:
+                # Lọc mã máy cuối cùng
+                final_mask = pd.Series([True] * len(df_assets))
+                if sel_branch != "Tất cả": final_mask &= (df_assets['branch'] == sel_branch)
+                if sel_dep != "Tất cả": final_mask &= (df_assets['department'] == sel_dep)
                 
-                final_assets = df_assets[mask]
-                asset_dict = {row['asset_tag']: row['id'] for _, row in final_assets.iterrows()}
-                selected_asset_tag = st.selectbox("💻 Chọn Mã máy", options=list(asset_dict.keys()), 
-                                                 help="Chỉ hiển thị các máy thuộc chi nhánh và phòng ban đã chọn")
+                valid_assets = df_assets[final_mask]
+                asset_dict = {row['asset_tag']: row['id'] for _, row in valid_assets.iterrows()}
+                sel_asset_tag = st.selectbox("💻 Mã máy", options=list(asset_dict.keys()))
 
-            # Dòng 2: Thông tin bảo trì
             st.markdown("---")
-            c_type, c_date, c_cost = st.columns([1, 1, 1])
-            action_type = c_type.selectbox("Loại hình", ["Vệ sinh máy", "Sửa chữa", "Nâng cấp", "Thay mới"])
-            p_date = c_date.date_input("Ngày thực hiện", value=today)
-            cost_val = c_cost.number_input("Chi phí (VNĐ)", min_value=0, step=10000)
-
-            description = st.text_area("Chi tiết nội dung (Ví dụ: Thay RAM, cài lại Win, vệ sinh quạt...)")
-            next_date = today + timedelta(days=180) # Mặc định 6 tháng sau
-
-            submitted = st.form_submit_button("💾 XÁC NHẬN LƯU NHẬT KÝ", type="primary", use_container_width=True)
+            col_a, col_b, col_c = st.columns(3)
+            a_type = col_a.selectbox("Loại hình", ["Vệ sinh", "Sửa chữa", "Nâng cấp", "Thay thế"])
+            p_date = col_b.date_input("Ngày thực hiện", value=today)
+            cost = col_c.number_input("Chi phí (VNĐ)", min_value=0, step=50000)
             
-            if submitted:
-                if not selected_asset_tag:
-                    st.error("Vui lòng chọn mã máy!")
-                else:
+            desc = st.text_area("Nội dung chi tiết")
+            n_date = p_date + timedelta(days=180)
+
+            if st.form_submit_button("Lưu nhật ký bảo trì", type="primary", use_container_width=True):
+                if sel_asset_tag:
                     try:
-                        submit_data = {
-                            "asset_id": asset_dict[selected_asset_tag],
-                            "action_type": action_type,
-                            "description": description,
+                        data = {
+                            "asset_id": asset_dict[sel_asset_tag],
+                            "action_type": a_type,
+                            "description": desc,
                             "performed_at": str(p_date),
-                            "cost": cost_val,
-                            "next_scheduled_date": str(next_date)
+                            "cost": cost,
+                            "next_scheduled_date": str(n_date)
                         }
-                        supabase.table("maintenance_log").insert(submit_data).execute()
-                        st.success(f"✅ Đã lưu dữ liệu bảo trì cho máy {selected_asset_tag}")
+                        supabase.table("maintenance_log").insert(data).execute()
+                        st.success(f"✅ Đã lưu bảo trì cho {sel_asset_tag}")
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Lỗi lưu dữ liệu: {e}")
+                        st.error(f"Lỗi Database: {e}")
 
-    # --- 3. PHẦN HIỂN THỊ LỊCH SỬ ---
-    st.markdown("### 📜 Nhật ký vận hành gần đây")
-    res = supabase.table("maintenance_log").select("*, assets!fk_assets(asset_tag, department, branch)").order("performed_at", desc=True).limit(20).execute()
-    
-    if res.data:
-        history_df = pd.DataFrame(res.data)
-        # Làm đẹp dữ liệu để hiển thị
-        history_df['Mã máy'] = history_df['assets'].apply(lambda x: x['asset_tag'] if x else "")
-        history_df['Phòng ban'] = history_df['assets'].apply(lambda x: x['department'] if x else "")
-        history_df['Chi nhánh'] = history_df['assets'].apply(lambda x: x['branch'] if x else "")
-        
-        st.dataframe(
-            history_df[['performed_at', 'Chi nhánh', 'Phòng ban', 'Mã máy', 'action_type', 'cost']],
-            column_config={
-                "performed_at": "Ngày",
-                "cost": st.column_config.NumberColumn("Chi phí", format="%d VNĐ")
-            },
-            hide_index=True,
-            use_container_width=True
+    # --- 3. HIỂN THỊ LỊCH SỬ ---
+    st.markdown("### 📜 Lịch sử bảo trì hệ thống")
+    log_res = supabase.table("maintenance_log").select("""
+        performed_at, action_type, description, cost,
+        assets!fk_assets (
+            asset_tag,
+            staff!assets_assigned_to_code_fkey (department, branch)
         )
+    """).order("performed_at", desc=True).limit(15).execute()
+
+    if log_res.data:
+        logs = []
+        for item in log_res.data:
+            asset_info = item.get('assets', {})
+            staff_info = asset_info.get('staff', {}) if asset_info else {}
+            logs.append({
+                "Ngày": item['performed_at'],
+                "Chi nhánh": staff_info.get('branch', 'N/A'),
+                "Phòng": staff_info.get('department', 'N/A'),
+                "Mã máy": asset_info.get('asset_tag', 'N/A'),
+                "Loại hình": item['action_type'],
+                "Chi phí": f"{item['cost']:,} VNĐ"
+            })
+        st.table(logs)
