@@ -11,8 +11,11 @@ if current_dir not in sys.path:
 # 2. IMPORT MODULES
 try:
     from src.database.client import get_supabase
-    # Đã thêm 'maintenance' vào danh sách import bên dưới
-    from src.modules import dashboard, inventory, servers, licenses, vault, auth, maintenance
+    # THÊM 'ai_advisor' VÀO DANH SÁCH IMPORT
+    from src.modules import (
+        dashboard, inventory, servers, licenses, 
+        vault, auth, maintenance, ai_advisor # <--- Thêm ở đây
+    )
 except ImportError as e:
     st.error(f"❌ Lỗi cấu trúc thư mục: {e}")
     st.stop()
@@ -20,23 +23,21 @@ except ImportError as e:
 # 3. CẤU HÌNH TRANG & GIAO DIỆN
 st.set_page_config(
     page_title="Quản lý tài sản 4 Oranges",
-    page_icon="🍊🍊🍊🍊",
+    page_icon="🍊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Nhúng CSS tùy chỉnh để giao diện "Rực rỡ" hơn
+# Nhúng CSS tùy chỉnh
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #ffffff;
-        border-radius: 4px 4px 0px 0px;
-        padding: 10px 20px;
-        border: 1px solid #e1e4e8;
-    }
     div[data-testid="stMetricValue"] { font-size: 24px; color: #1a73e8; }
+    /* Style cho Tab AI đặc biệt */
+    button[id*="tabs-bui3-tab-6"] {
+        background-color: #f0f2f6 !important;
+        border-bottom: 2px solid #764ba2 !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -51,80 +52,61 @@ def init_connection():
 
 supabase = init_connection()
 
-# Khởi tạo trạng thái đăng nhập
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
 # 5. LOGIC HIỂN THỊ CHÍNH
 if not st.session_state.authenticated:
-    # Hiển thị trang đăng nhập nếu chưa login
     auth.login_page(supabase)
 else:
-    # --- GIAO DIỆN SAU KHI ĐĂNG NHẬP THÀNH CÔNG ---
-    
-    # Sidebar: Thông tin người dùng & Logout
+    # Sidebar
     with st.sidebar:
         st.image("https://cdn-icons-png.flaticon.com/512/2592/2592261.png", width=50)
         st.markdown(f"### 🛡️ Quản trị viên")
         st.caption(f"Email: {st.session_state.get('user_email', 'N/A')}")
         st.markdown("---")
-        
         if st.button("🚪 Đăng xuất", use_container_width=True):
             st.session_state.authenticated = False
             st.rerun()
-            
-        st.info(f"🟢 **Trạng thái:** Hệ thống Online")
+        st.info(f"🟢 **Hệ thống:** Online")
 
-    # Header ứng dụng
-    col_logo, col_title = st.columns([1, 8])
-    with col_title:
-        st.title("🍊🍊🍊🍊 Quản lý tài sản 4 Oranges")
-        st.caption(f"Hệ thống quản lý tài sản nội bộ by IT 4 Oranges | Phiên bản 2.0 | Ngày: {datetime.now().strftime('%d/%m/%Y')}")
+    # Header
+    st.title("🍊 Quản lý tài sản 4 Oranges")
+    st.caption(f"Phiên bản 2.0 Pro | AI Powered | Ngày: {datetime.now().strftime('%d/%m/%Y')}")
 
-    # --- ĐÃ THÊM TAB 'BẢO TRÌ & VẬN HÀNH' VÀO DANH SÁCH ---
+    # --- CẬP NHẬT DANH SÁCH TABS (THÊM TAB AI) ---
     tabs = st.tabs([
-        "📊 Thống kê Tổng quan", 
-        "💻 Cấp phát & Kho", 
-        "🖥️ Hạ tầng Máy chủ", 
-        "🌐 Bản quyền & License",
-        "🛠️ Bảo trì & Vận hành", # Tab mới
-        "🔐 Vault Mật khẩu"       
+        "📊 Tổng quan", 
+        "💻 Cấp phát", 
+        "🖥️ Máy chủ", 
+        "🌐 License",
+        "🛠️ Bảo trì", 
+        "🔐 Vault",
+        "🤖 AI ADVISOR" # <--- Tab "Chốt hạ"
     ])
 
     # Render nội dung từng Module
     with tabs[0]:
-        try:
-            dashboard.render_dashboard(supabase)
-        except Exception as e:
-            st.error(f"❌ Lỗi Dashboard: {e}")
+        dashboard.render_dashboard(supabase)
 
     with tabs[1]:
-        try:
-            inventory.render_inventory(supabase)
-        except Exception as e:
-            st.error(f"❌ Lỗi hiển thị Cấp phát: {e}")
+        inventory.render_inventory(supabase)
 
     with tabs[2]:
-        try:
-            servers.render_servers(supabase)
-        except Exception as e:
-            st.error(f"❌ Lỗi hiển thị Máy chủ: {e}")
+        servers.render_servers(supabase)
 
     with tabs[3]:
-        try:
-            licenses.render_licenses(supabase)
-        except Exception as e:
-            st.error(f"❌ Lỗi hiển thị Bản quyền: {e}")
+        licenses.render_licenses(supabase)
 
-    # --- RENDER MODULE BẢO TRÌ MỚI ---
     with tabs[4]:
-        try:
-            maintenance.render_maintenance(supabase)
-        except Exception as e:
-            st.error(f"❌ Lỗi hiển thị Bảo trì: {e}")
+        maintenance.render_maintenance(supabase)
 
     with tabs[5]:
+        vault.render_vault(supabase)
+
+    # --- RENDER TAB AI ADVISOR ---
+    with tabs[6]:
         try:
-            vault.render_vault(supabase)
+            ai_advisor.render_ai_advisor(supabase)
         except Exception as e:
-            st.error(f"❌ Lỗi hiển thị Vault: {e}")
+            st.error(f"❌ Lỗi AI Engine: {e}")
