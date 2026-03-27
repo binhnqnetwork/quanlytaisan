@@ -2,6 +2,17 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
+def release_licenses(supabase, software_list):
+    """Hàm bổ trợ: Trả số lượng License về kho khi thiết bị không còn sử dụng"""
+    if not software_list:
+        return
+    for sw_name in software_list:
+        res = supabase.table("licenses").select("id, used_quantity").eq("name", sw_name).execute()
+        if res.data:
+            lic = res.data[0]
+            new_qty = max(0, (lic['used_quantity'] or 0) - 1)
+            supabase.table("licenses").update({"used_quantity": new_qty}).eq("id", lic['id']).execute()
+
 def render_inventory(supabase):
     # --- 1. CẤU HÌNH HỆ THỐNG & STYLE APPLE ---
     type_mapping = {
@@ -117,10 +128,9 @@ def render_inventory(supabase):
                     st.success("Đã nhập kho thành công!")
                     st.rerun()
 
-    # --- 4. MỚI: QUẢN TRỊ THIẾT BỊ (SỬA/XÓA) ---
+    # --- 4. QUẢN TRỊ THIẾT BỊ (SỬA/XÓA/THU HỒI LICENSE) ---
     with st.expander("⚙️ Quản trị thiết bị (Sửa/Xóa/Thanh lý)"):
-        # Lấy danh sách thô từ DB để sửa
-        all_assets_raw = supabase.table("assets").select("id, asset_tag, type, status, specs").order("asset_tag").execute()
+        all_assets_raw = supabase.table("assets").select("*").order("asset_tag").execute()
         if all_assets_raw.data:
             asset_dict = {a['asset_tag']: a for a in all_assets_raw.data}
             target_tag = st.selectbox("Chọn thiết bị cần xử lý", ["-- Chọn thiết bị --"] + list(asset_dict.keys()))
@@ -137,26 +147,30 @@ def render_inventory(supabase):
                     edit_note = st.text_area("Thông số/Ghi chú lý do thanh lý", value=curr_note)
                     
                     b1, b2, b3 = st.columns([1, 1, 2])
+                    
                     if b1.form_submit_button("💾 Lưu thay đổi"):
                         upd_payload = {
                             "status": edit_status,
                             "type": type_mapping[edit_label],
                             "specs": {"note": edit_note}
                         }
-                        # Tự động thu hồi nếu chuyển về Kho hoặc Thanh lý
+                        # Thu hồi License & Gỡ chủ sở hữu nếu thiết bị không còn sử dụng
                         if edit_status in ["Trong kho", "Hỏng chờ thanh lý", "Đã thanh lý"]:
+                            release_licenses(supabase, selected_item.get('software_list', []))
                             upd_payload["assigned_to_code"] = None
+                            upd_payload["software_list"] = []
                         
                         supabase.table("assets").update(upd_payload).eq("id", selected_item['id']).execute()
-                        st.success("Cập nhật thành công!")
+                        st.success("Đã cập nhật dữ liệu và điều chỉnh License.")
                         st.rerun()
                         
                     if b2.form_submit_button("🗑️ Xóa vĩnh viễn"):
+                        # Thu hồi License trước khi xóa bản ghi máy
+                        release_licenses(supabase, selected_item.get('software_list', []))
                         supabase.table("assets").delete().eq("id", selected_item['id']).execute()
-                        st.warning(f"Đã xóa {target_tag}")
+                        st.warning(f"Đã thu hồi license và xóa {target_tag}")
                         st.rerun()
-        else:
-            st.info("Chưa có dữ liệu thiết bị.")
+        else: st.info("Chưa có dữ liệu thiết bị.")
 
     # --- 5. BẢNG DANH MỤC GỘP ---
     st.markdown("---")
@@ -164,7 +178,6 @@ def render_inventory(supabase):
     
     v_filter = st.segmented_control("Lọc chi nhánh:", ["Tất cả"] + list(branch_map.keys()), default="Tất cả")
 
-    # Chỉ hiển thị thiết bị chưa thanh lý ở bảng tổng hợp để tránh rác dữ liệu
     res_all = supabase.table("assets").select("*, staff!assets_assigned_to_code_fkey(full_name, department, branch)").neq("status", "Đã thanh lý").order("asset_tag").execute()
     
     if res_all.data:
@@ -219,8 +232,7 @@ def render_inventory(supabase):
             use_container_width=True, hide_index=True, key="main_grid"
         )
 
-        # Dashboard mini
         c1, c2, c3 = st.columns(3)
-        c1.metric("Tổng thiết bị (Đang vận hành)", len(res_all.data))
+        c1.metric("Tổng thiết bị (Sống)", len(res_all.data))
         c2.metric("Đang cấp phát", sum(df_final[df_final['Mã NV'] != "---"]['Số lượng']))
         c3.metric("Nhân sự nắm giữ", len(df_final[df_final['Mã NV'] != "---"]))
