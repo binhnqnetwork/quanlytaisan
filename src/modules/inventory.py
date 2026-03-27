@@ -11,8 +11,7 @@ def render_inventory(supabase):
     }
     display_type_map = {v: k for k, v in type_mapping.items()}
     branch_map = {"Miền Bắc": "MB", "Chi nhánh TPHCM": "HCM", "Nhà máy LA": "LA", "Polypack": "PP", "Đà Nẵng": "DN"}
-    status_list = ["Trong kho", "Đang sử dụng", "Bảo trì", "Hỏng chờ thanh lý", "Đã thanh lý"]
-
+    
     st.markdown("""
         <style>
         .stApp { background-color: #f5f5f7; }
@@ -33,7 +32,7 @@ def render_inventory(supabase):
     st.title("🍎 Asset Management Pro")
     st.markdown("### Hệ thống Điều phối & Quản trị Tập trung")
 
-    # --- 2. TRUNG TÂM ĐIỀU PHỐI (SEARCH & ASSIGN) ---
+    # --- 2. TRUNG TÂM ĐIỀU PHỐI (Giữ nguyên logic của pro) ---
     st.markdown('<div class="apple-card">', unsafe_allow_html=True)
     c_search, c_status = st.columns([2, 1])
     with c_search:
@@ -97,7 +96,7 @@ def render_inventory(supabase):
                             st.rerun()
     else: st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- 3. NHẬP KHO (QUY TẮC ĐẶT TÊN CHUẨN) ---
+    # --- 3. NHẬP KHO (Giữ nguyên) ---
     with st.expander("📥 Nhập thiết bị mới vào kho"):
         with st.form("new_asset"):
             c1, c2, c3 = st.columns(3)
@@ -117,7 +116,7 @@ def render_inventory(supabase):
                     st.success("Đã nhập kho thành công!")
                     st.rerun()
 
-    # --- 4. BẢNG DANH MỤC GỘP (PEOPLE-CENTRIC VIEW) ---
+    # --- 4. BẢNG DANH MỤC GỘP (ĐÃ FIX LỖI 'Thiết b' & THÊM CỘT PHẦN MỀM) ---
     st.markdown("---")
     st.markdown("### 📋 Danh sách Quản lý Tài sản")
     
@@ -126,7 +125,6 @@ def render_inventory(supabase):
     res_all = supabase.table("assets").select("*, staff!assets_assigned_to_code_fkey(full_name, department, branch)").order("asset_tag").execute()
     
     if res_all.data:
-        # Gộp dữ liệu: 1 người - n tài sản & n phần mềm
         grouped = {}
         for item in res_all.data:
             s = item.get('staff')
@@ -138,27 +136,36 @@ def render_inventory(supabase):
                     "Nhân viên": s.get('full_name') if s else "📦 TRONG KHO",
                     "Phòng ban": s.get('department') if s else "Hạ tầng IT",
                     "Chi nhánh": s.get('branch') if s else "Trung tâm",
-                    "Thiết bị": [],
-                    "Phần mềm": set(), # Dùng set để tránh trùng lặp phần mềm nếu 1 người có nhiều máy cài cùng 1 app
+                    "Thiết bị_list": [],  # Dùng tên tạm để tránh trùng với cột hiển thị
+                    "Phần mềm_set": set(),
                     "Số lượng": 0
                 }
             
-            # Xử lý tên thiết bị
+            # Gom thiết bị
             t_name = display_type_map.get(item['type'], "Khác")
-            grouped[owner_key]["Thiết bị"].append(f"{item['asset_tag']} ({t_name})")
+            grouped[owner_key]["Thiết bị_list"].append(f"{item['asset_tag']} ({t_name})")
             
-            # Xử lý danh sách phần mềm (Lấy từ cột software_list của asset)
+            # Gom phần mềm
             asset_sw = item.get('software_list') or []
             if asset_sw:
-                grouped[owner_key]["Phần mềm"].update(asset_sw)
+                grouped[owner_key]["Phần mềm_set"].update(asset_sw)
             
             grouped[owner_key]["Số lượng"] += 1
 
-        # Chuyển đổi dữ liệu để hiển thị
-        df_final = pd.DataFrame(list(grouped.values()))
-        df_final["Thiết bị"] = df_final["Thiết b"].apply(lambda x: " | ".join(x))
-        # Chuyển set phần mềm thành chuỗi, nếu trống thì để "---"
-        df_final["Phần mềm"] = df_final["Phần mềm"].apply(lambda x: ", ".join(x) if x else "---")
+        # Chuyển đổi dữ liệu sang DataFrame hiển thị
+        display_data = []
+        for key, val in grouped.items():
+            display_data.append({
+                "Mã NV": val["Mã NV"],
+                "Nhân viên": val["Nhân viên"],
+                "Phòng ban": val["Phòng ban"],
+                "Chi nhánh": val["Chi nhánh"],
+                "Thiết bị": " | ".join(val["Thiết bị_list"]),
+                "Phần mềm": ", ".join(val["Phần mềm_set"]) if val["Phần mềm_set"] else "---",
+                "Số lượng": val["Số lượng"]
+            })
+
+        df_final = pd.DataFrame(display_data)
 
         if v_filter != "Tất cả":
             df_final = df_final[df_final['Chi nhánh'] == v_filter]
@@ -166,7 +173,6 @@ def render_inventory(supabase):
         st.data_editor(
             df_final,
             column_config={
-                "Mã NV": st.column_config.TextColumn("ID", width="small"),
                 "Nhân viên": st.column_config.TextColumn("👤 Người sở hữu", width="medium"),
                 "Thiết bị": st.column_config.TextColumn("🖥️ Danh sách tài sản", width="large"),
                 "Phần mềm": st.column_config.TextColumn("📜 Phần mềm/License", width="medium"),
@@ -175,7 +181,7 @@ def render_inventory(supabase):
             use_container_width=True, hide_index=True, key="main_grid"
         )
 
-        # Dashboard mini (Giữ nguyên)
+        # Dashboard mini
         c1, c2, c3 = st.columns(3)
         c1.metric("Tổng thiết bị", len(res_all.data))
         c2.metric("Đang cấp phát", sum(df_final[df_final['Mã NV'] != "---"]['Số lượng']))
