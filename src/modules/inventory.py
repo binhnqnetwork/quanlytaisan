@@ -11,6 +11,8 @@ def render_inventory(supabase):
     }
     display_type_map = {v: k for k, v in type_mapping.items()}
     branch_map = {"Miền Bắc": "MB", "Chi nhánh TPHCM": "HCM", "Nhà máy LA": "LA", "Polypack": "PP", "Đà Nẵng": "DN"}
+    # Thêm danh sách trạng thái để phục vụ việc sửa
+    status_list = ["Trong kho", "Đang sử dụng", "Bảo trì", "Hỏng chờ thanh lý", "Đã thanh lý"]
     
     st.markdown("""
         <style>
@@ -32,7 +34,7 @@ def render_inventory(supabase):
     st.title("🍎 Asset Management Pro")
     st.markdown("### Hệ thống Điều phối & Quản trị Tập trung")
 
-    # --- 2. TRUNG TÂM ĐIỀU PHỐI (Giữ nguyên logic của pro) ---
+    # --- 2. TRUNG TÂM ĐIỀU PHỐI (Giữ nguyên) ---
     st.markdown('<div class="apple-card">', unsafe_allow_html=True)
     c_search, c_status = st.columns([2, 1])
     with c_search:
@@ -116,13 +118,57 @@ def render_inventory(supabase):
                     st.success("Đã nhập kho thành công!")
                     st.rerun()
 
-    # --- 4. BẢNG DANH MỤC GỘP (ĐÃ FIX LỖI 'Thiết b' & THÊM CỘT PHẦN MỀM) ---
+    # --- 4. MỚI: CHỨC NĂNG SỬA & XÓA (ADMIN ZONE) ---
+    with st.expander("⚙️ Chỉnh sửa hoặc Thanh lý thiết bị"):
+        # Lấy toàn bộ danh sách thiết bị đơn lẻ để sửa
+        all_assets_res = supabase.table("assets").select("id, asset_tag, type, status, specs").order("asset_tag").execute()
+        if all_assets_res.data:
+            edit_options = {a['asset_tag']: a for a in all_assets_res.data}
+            selected_tag = st.selectbox("Chọn thiết bị cần xử lý", ["-- Chọn mã tài sản --"] + list(edit_options.keys()))
+            
+            if selected_tag != "-- Chọn mã tài sản --":
+                item_to_edit = edit_options[selected_tag]
+                with st.form("edit_asset_form"):
+                    col_e1, col_e2 = st.columns(2)
+                    new_status = col_e1.selectbox("Trạng thái", status_list, index=status_list.index(item_to_edit['status']))
+                    new_type = col_e2.selectbox("Loại thiết bị", list(type_mapping.keys()), 
+                                                index=list(type_mapping.values()).index(item_to_edit['type']))
+                    
+                    # Lấy note cũ từ json specs
+                    old_note = item_to_edit.get('specs', {}).get('note', "") if item_to_edit.get('specs') else ""
+                    new_specs = st.text_area("Cập nhật thông số/Ghi chú thanh lý", value=old_note)
+                    
+                    c_btn1, c_btn2, c_btn3 = st.columns([1, 1, 2])
+                    if c_btn1.form_submit_button("💾 Lưu thay đổi"):
+                        upd_data = {
+                            "status": new_status,
+                            "type": type_mapping[new_type],
+                            "specs": {"note": new_specs}
+                        }
+                        # Nếu chuyển thành thanh lý/hỏng thì thu hồi luôn (gỡ mã NV)
+                        if new_status in ["Hỏng chờ thanh lý", "Đã thanh lý", "Trong kho"]:
+                            upd_data["assigned_to_code"] = None
+                            
+                        supabase.table("assets").update(upd_data).eq("id", item_to_edit['id']).execute()
+                        st.success(f"Đã cập nhật {selected_tag}")
+                        st.rerun()
+                        
+                    if c_btn2.form_submit_button("🗑️ Xóa vĩnh viễn"):
+                        # Chỉ cho xóa nếu thực sự cần (cẩn thận vì mất data)
+                        supabase.table("assets").delete().eq("id", item_to_edit['id']).execute()
+                        st.warning(f"Đã xóa thiết bị {selected_tag}")
+                        st.rerun()
+        else:
+            st.info("Chưa có thiết bị nào để chỉnh sửa.")
+
+    # --- 5. BẢNG DANH MỤC GỘP (Giữ nguyên hiển thị) ---
     st.markdown("---")
     st.markdown("### 📋 Danh sách Quản lý Tài sản")
     
     v_filter = st.segmented_control("Lọc chi nhánh:", ["Tất cả"] + list(branch_map.keys()), default="Tất cả")
 
-    res_all = supabase.table("assets").select("*, staff!assets_assigned_to_code_fkey(full_name, department, branch)").order("asset_tag").execute()
+    # Lưu ý: Thêm điều kiện lọc để không hiển thị "Đã thanh lý" ở bảng gộp nếu pro muốn sạch bảng
+    res_all = supabase.table("assets").select("*, staff!assets_assigned_to_code_fkey(full_name, department, branch)").neq("status", "Đã thanh lý").order("asset_tag").execute()
     
     if res_all.data:
         grouped = {}
@@ -136,23 +182,20 @@ def render_inventory(supabase):
                     "Nhân viên": s.get('full_name') if s else "📦 TRONG KHO",
                     "Phòng ban": s.get('department') if s else "Hạ tầng IT",
                     "Chi nhánh": s.get('branch') if s else "Trung tâm",
-                    "Thiết bị_list": [],  # Dùng tên tạm để tránh trùng với cột hiển thị
+                    "Thiết bị_list": [],
                     "Phần mềm_set": set(),
                     "Số lượng": 0
                 }
             
-            # Gom thiết bị
             t_name = display_type_map.get(item['type'], "Khác")
             grouped[owner_key]["Thiết bị_list"].append(f"{item['asset_tag']} ({t_name})")
             
-            # Gom phần mềm
             asset_sw = item.get('software_list') or []
             if asset_sw:
                 grouped[owner_key]["Phần mềm_set"].update(asset_sw)
             
             grouped[owner_key]["Số lượng"] += 1
 
-        # Chuyển đổi dữ liệu sang DataFrame hiển thị
         display_data = []
         for key, val in grouped.items():
             display_data.append({
@@ -181,8 +224,7 @@ def render_inventory(supabase):
             use_container_width=True, hide_index=True, key="main_grid"
         )
 
-        # Dashboard mini
         c1, c2, c3 = st.columns(3)
-        c1.metric("Tổng thiết bị", len(res_all.data))
+        c1.metric("Tổng thiết bị (Sống)", len(res_all.data))
         c2.metric("Đang cấp phát", sum(df_final[df_final['Mã NV'] != "---"]['Số lượng']))
         c3.metric("Nhân sự nắm giữ", len(df_final[df_final['Mã NV'] != "---"]))
