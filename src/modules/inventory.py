@@ -81,7 +81,6 @@ def render_inventory(supabase):
                                 if sw_name not in current_sw:
                                     current_sw.append(sw_name)
                                     supabase.table("assets").update({"software_list": current_sw}).eq("id", asset_item['id']).execute()
-                                    # Cập nhật số lượng license
                                     target_lic = [l for l in res_lic.data if l['name'] == sw_name][0]
                                     supabase.table("licenses").update({
                                         "used_quantity": (target_lic['used_quantity'] or 0) + 1
@@ -102,15 +101,18 @@ def render_inventory(supabase):
                 with st.form("new_staff"):
                     new_name = st.text_input("Họ và tên nhân viên")
                     c1, c2 = st.columns(2)
-                    new_dept = c1.selectbox("Phòng ban", ["IT", "Kỹ thuật", "Văn phòng", "Sản xuất", "Kế toán"])
+                    # SỬA ĐỔI TẠI ĐÂY: Dùng text_input thay vì selectbox cho Phòng ban
+                    new_dept = c1.text_input("Phòng ban", placeholder="VD: Kế toán, Sản xuất, IT...")
                     new_branch = c2.selectbox("Chi nhánh", list(branch_map.keys()))
                     if st.form_submit_button("Lưu hồ sơ"):
-                        if new_name:
+                        if new_name and new_dept:
                             supabase.table("staff").insert({
                                 "employee_code": e_code, "full_name": new_name,
                                 "department": new_dept, "branch": new_branch
                             }).execute()
                             st.rerun()
+                        else:
+                            st.error("Vui lòng nhập đầy đủ Tên và Phòng ban.")
     else:
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -143,9 +145,7 @@ def render_inventory(supabase):
         default="Tất cả"
     )
 
-    # Truy vấn Join dữ liệu để lấy Tên nhân viên
     with st.spinner("Đang đồng bộ dữ liệu..."):
-        # Cách Join chuyên nghiệp qua mã nhân viên
         res_all = supabase.table("assets").select("*, staff!assets_assigned_to_code_fkey(full_name, department, branch)").order("asset_tag").execute()
         
     if res_all.data:
@@ -165,12 +165,10 @@ def render_inventory(supabase):
         
         df_final = pd.DataFrame(processed_data)
 
-        # Lọc dữ liệu theo vùng
         if vung_filter != "Tất cả":
             suffix = branch_map[vung_filter]
             df_final = df_final[df_final['asset_tag'].str.contains(f"-{suffix}")]
 
-        # Hiển thị bằng Data Editor để cho phép chỉnh sửa trạng thái nhanh
         edited_df = st.data_editor(
             df_final,
             column_config={
@@ -188,7 +186,6 @@ def render_inventory(supabase):
             key="main_inventory_grid"
         )
 
-        # Lưu thay đổi trạng thái nhanh từ bảng
         if st.button("💾 Lưu thay đổi trạng thái từ bảng"):
             diff = edited_df[edited_df['status'] != df_final['status']]
             if not diff.empty:
@@ -197,7 +194,6 @@ def render_inventory(supabase):
                 st.success(f"Đã cập nhật {len(diff)} bản ghi!")
                 st.rerun()
 
-        # Thống kê nhanh
         c1, c2, c3 = st.columns(3)
         c1.metric("Tổng thiết bị", len(df_final))
         c2.metric("Đang sử dụng", len(df_final[df_final['status'] == "Đang sử dụng"]))
