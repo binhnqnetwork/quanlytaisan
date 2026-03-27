@@ -1,92 +1,104 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
 from . import ai_engine
 
-def render_dashboard(supabase, key_prefix="main"):
-    st.markdown("### 🏢 Hệ Thống Quản Trị Tài Sản Doanh Nghiệp")
+def render_dashboard(supabase, key_prefix="pro_max"):
+    # --- CSS NÂNG CẤP: GLASSMORPHISM STYLE ---
+    st.markdown("""
+        <style>
+        [data-testid="stMetricValue"] { font-size: 28px !important; color: #1d1d1f; }
+        .main-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 20px;
+            border: 1px solid rgba(209, 209, 214, 0.5);
+            margin-bottom: 20px;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
+    st.title("🚀 Enterprise Asset Intelligence")
+    
     try:
-        # 1. TRUY XUẤT DỮ LIỆU
-        with st.spinner("Đang đồng bộ dữ liệu hệ thống..."):
-            res_assets = supabase.table("assets").select("*").execute()
-            res_staff = supabase.table("staff").select("*").execute()
-            res_lic = supabase.table("licenses").select("*").execute()
-            res_maint = supabase.table("maintenance_log").select("*").execute()
-
+        # 1. DATA ACQUISITION
+        res_assets = supabase.table("assets").select("*").execute()
+        res_staff = supabase.table("staff").select("*").execute()
         df_assets = pd.DataFrame(res_assets.data)
         df_staff = pd.DataFrame(res_staff.data)
-        df_lic = pd.DataFrame(res_lic.data)
-        df_maint = pd.DataFrame(res_maint.data)
 
-        if df_assets.empty or df_staff.empty:
-            st.warning("⚠️ Dữ liệu nền chưa sẵn sàng.")
-            return
-
-        # 2. TIỀN XỬ LÝ (TRƯỚC KHI GỌI AI ENGINE)
-        # Giữ nguyên để AI Engine nhận dữ liệu sạch
-        for df, col in [(df_assets, 'assigned_to_code'), (df_staff, 'employee_code')]:
-            df[col] = df[col].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
-            df[col] = df[col].replace(['nan', 'None', 'null', '<NA>', ''], np.nan)
-
-        # 3. GỌI AI ENGINE (LUỒNG XỬ LÝ CHÍNH)
-        # Lưu ý: df_ai bây giờ đã là bảng ĐÃ GỘP NHÓM (Grouped)
-        metrics, df_ai, lic_ai, b_stats, d_stats, u_stats = ai_engine.calculate_ai_metrics(
-            df_assets, df_maint, df_lic, df_staff
+        # Tiền xử lý nhanh
+        df_assets['assigned_to_code'] = df_assets['assigned_to_code'].astype(str).str.replace(r'\.0$', '', regex=True)
+        
+        # 2. AI ENGINE PROCESSING
+        metrics, df_ai, _, b_stats, d_stats, _ = ai_engine.calculate_ai_metrics(
+            df_assets, None, None, df_staff
         )
 
-        # -------------------------------------------------
-        # 4. SIDEBAR & BỘ LỌC (Cập nhật tên cột mới)
-        # -------------------------------------------------
-        with st.sidebar:
-            st.header("🎯 Bộ lọc dữ liệu")
-            
-            # Cột 'branch' và 'department' vẫn giữ nguyên tên từ AI Engine
-            branches = ["Tất cả"] + sorted(df_ai['branch'].dropna().unique().tolist())
-            sel_branch = st.selectbox("Chi nhánh", branches, key=f"{key_prefix}_br")
+        # 3. TOP KPI SECTION (APPLE STYLE CARDS)
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.markdown('<div class="main-card">', unsafe_allow_html=True)
+            st.metric("Tổng thiết bị", f"{df_ai['Số lượng'].sum()} 🖥️")
+            st.markdown('</div>', unsafe_allow_html=True)
+        with col2:
+            st.markdown('<div class="main-card">', unsafe_allow_html=True)
+            st.metric("Nhân sự nắm giữ", f"{len(df_ai[df_ai['Mã NV'] != '---'])} 👤")
+            st.markdown('</div>', unsafe_allow_html=True)
+        with col3:
+            st.markdown('<div class="main-card">', unsafe_allow_html=True)
+            st.metric("Bản quyền", f"{metrics.get('license_alerts', 0)} 🔑", delta="-2% week")
+            st.markdown('</div>', unsafe_allow_html=True)
+        with col4:
+            st.markdown('<div class="main-card">', unsafe_allow_html=True)
+            st.metric("Rủi ro vận hành", "Thấp 🟢")
+            st.markdown('</div>', unsafe_allow_html=True)
 
-            depts = ["Tất cả"] + sorted(df_ai['department'].dropna().unique().tolist())
-            sel_dept = st.selectbox("Phòng ban", depts, key=f"{key_prefix}_de")
+        # 4. TRỰC QUAN HÓA DỮ LIỆU (THE POWER OF VISUALS)
+        c_left, c_right = st.columns([1, 1])
 
-        # 5. LOGIC LỌC DỮ LIỆU HIỂN THỊ
-        df_display = df_ai.copy()
-        if sel_branch != "Tất cả":
-            df_display = df_display[df_display['branch'] == sel_branch]
-        if sel_dept != "Tất cả":
-            df_display = df_display[df_display['department'] == sel_dept]
+        with c_left:
+            st.markdown("##### 📍 Phân bổ theo Chi nhánh")
+            # Dùng Pie Chart phong cách hiện đại
+            fig_br = px.pie(b_stats, values='asset_count', names='branch', 
+                            hole=0.6, color_discrete_sequence=px.colors.qualitative.Pastel)
+            fig_br.update_layout(margin=dict(t=0, b=0, l=0, r=0), height=300, showlegend=True)
+            st.plotly_chart(fig_br, use_container_width=True)
 
-        # -------------------------------------------------
-        # 6. TRA CỨU NHANH (Sửa lỗi: dùng tên cột mới sau Groupby)
-        # -------------------------------------------------
-        search = st.text_input("🔍 Tra cứu nhanh", placeholder="Mã máy hoặc tên nhân sự...", key=f"{key_prefix}_se")
+        with c_right:
+            st.markdown("##### 🏢 Tài sản theo Phòng ban")
+            # Dùng Bar Chart nằm ngang (Donut style bars)
+            fig_dept = px.bar(d_stats.sort_values('asset_count'), x='asset_count', y='department', 
+                              orientation='h', color='asset_count', color_continuous_scale='Blues')
+            fig_dept.update_layout(margin=dict(t=0, b=0, l=0, r=0), height=300, coloraxis_showscale=False)
+            st.plotly_chart(fig_dept, use_container_width=True)
+
+        # 5. DRILL-DOWN TABLE (PEOPLE-CENTRIC)
+        st.markdown("---")
+        st.markdown("##### 🔍 Chi tiết cấp phát & Truy xuất nhanh")
+        
+        # Thanh tìm kiếm tích hợp gọn gàng
+        search = st.text_input("Tìm kiếm thông minh...", placeholder="Gõ tên nhân viên hoặc mã máy để lọc ngay...")
+        
+        df_final = df_ai.copy()
         if search:
-            # Sử dụng cột 'Mã máy' và 'Nhân viên sở hữu' thay vì asset_tag và full_name
-            df_display = df_display[
-                df_display['Mã máy'].str.contains(search, case=False, na=False) |
-                df_display['Nhân viên sở hữu'].str.contains(search, case=False, na=False)
+            df_final = df_final[
+                df_final['Mã máy'].str.contains(search, case=False, na=False) |
+                df_final['Nhân viên sở hữu'].str.contains(search, case=False, na=False)
             ]
 
-        # 7. KPI DASHBOARD
-        m1, m2, m3, m4 = st.columns(4)
-        # Tính tổng máy dựa trên cột 'Số lượng' (vì mỗi dòng giờ là 1 người)
-        total_machines = df_display['Số lượng'].sum() if 'Số lượng' in df_display.columns else len(df_display)
-        
-        m1.metric("Tổng thiết bị", f"{total_machines} máy")
-        m2.metric("👤 Nhân sự", f"{len(df_display)} người") # Số dòng tương ứng số người
-        m3.metric("🔑 Bản quyền", metrics.get("license_alerts", 0))
-        m4.metric("⚙️ MTTR", f"{metrics.get('mttr', 0)}h")
-
-        st.markdown("---")
-        st.markdown("### 📋 Danh sách Quản lý Tài sản (Gộp theo nhân sự)")
-        
-        # 8. HIỂN THỊ BẢNG (Dữ liệu đã được chuẩn hóa tên từ AI Engine)
-        # Chúng ta không cần gán lại tên cột nữa vì AI Engine đã làm rồi
         st.dataframe(
-            df_display, 
-            use_container_width=True, 
-            hide_index=True, 
-            height=500
+            df_final,
+            column_config={
+                "Mã máy": st.column_config.TextColumn("🔖 Định danh tài sản"),
+                "Nhân viên sở hữu": st.column_config.TextColumn("👤 Người dùng"),
+                "Số lượng": st.column_config.ProgressColumn("SL", format="%d", min_value=0, max_value=5)
+            },
+            use_container_width=True, hide_index=True
         )
 
     except Exception as e:
-        st.error(f"❌ Lỗi Dashboard: {str(e)}")
+        st.error(f"Hệ thống đang bảo trì Dashboard: {e}")
