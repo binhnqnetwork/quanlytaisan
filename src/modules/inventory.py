@@ -126,7 +126,7 @@ def render_inventory(supabase):
     res_all = supabase.table("assets").select("*, staff!assets_assigned_to_code_fkey(full_name, department, branch)").order("asset_tag").execute()
     
     if res_all.data:
-        # Gộp dữ liệu: 1 người - n tài sản
+        # Gộp dữ liệu: 1 người - n tài sản & n phần mềm
         grouped = {}
         for item in res_all.data:
             s = item.get('staff')
@@ -139,15 +139,26 @@ def render_inventory(supabase):
                     "Phòng ban": s.get('department') if s else "Hạ tầng IT",
                     "Chi nhánh": s.get('branch') if s else "Trung tâm",
                     "Thiết bị": [],
+                    "Phần mềm": set(), # Dùng set để tránh trùng lặp phần mềm nếu 1 người có nhiều máy cài cùng 1 app
                     "Số lượng": 0
                 }
             
+            # Xử lý tên thiết bị
             t_name = display_type_map.get(item['type'], "Khác")
             grouped[owner_key]["Thiết bị"].append(f"{item['asset_tag']} ({t_name})")
+            
+            # Xử lý danh sách phần mềm (Lấy từ cột software_list của asset)
+            asset_sw = item.get('software_list') or []
+            if asset_sw:
+                grouped[owner_key]["Phần mềm"].update(asset_sw)
+            
             grouped[owner_key]["Số lượng"] += 1
 
+        # Chuyển đổi dữ liệu để hiển thị
         df_final = pd.DataFrame(list(grouped.values()))
-        df_final["Thiết bị"] = df_final["Thiết bị"].apply(lambda x: " | ".join(x))
+        df_final["Thiết bị"] = df_final["Thiết b"].apply(lambda x: " | ".join(x))
+        # Chuyển set phần mềm thành chuỗi, nếu trống thì để "---"
+        df_final["Phần mềm"] = df_final["Phần mềm"].apply(lambda x: ", ".join(x) if x else "---")
 
         if v_filter != "Tất cả":
             df_final = df_final[df_final['Chi nhánh'] == v_filter]
@@ -155,14 +166,16 @@ def render_inventory(supabase):
         st.data_editor(
             df_final,
             column_config={
+                "Mã NV": st.column_config.TextColumn("ID", width="small"),
                 "Nhân viên": st.column_config.TextColumn("👤 Người sở hữu", width="medium"),
                 "Thiết bị": st.column_config.TextColumn("🖥️ Danh sách tài sản", width="large"),
+                "Phần mềm": st.column_config.TextColumn("📜 Phần mềm/License", width="medium"),
                 "Số lượng": st.column_config.NumberColumn("🔢 SL", width="small")
             },
             use_container_width=True, hide_index=True, key="main_grid"
         )
 
-        # Dashboard mini
+        # Dashboard mini (Giữ nguyên)
         c1, c2, c3 = st.columns(3)
         c1.metric("Tổng thiết bị", len(res_all.data))
         c2.metric("Đang cấp phát", sum(df_final[df_final['Mã NV'] != "---"]['Số lượng']))
