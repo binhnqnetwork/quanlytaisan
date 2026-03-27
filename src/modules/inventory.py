@@ -4,7 +4,7 @@ from datetime import datetime
 
 def render_inventory(supabase):
     # --- 1. CẤU HÌNH HỆ THỐNG & STYLE ---
-    type_mapping = {"Desktop PC": "pc", "Laptop": "laptop", "Server": "server", "Monitor": "monitor"}
+    type_mapping = {"Desktop PC": "pc", "Laptop": "laptop", "Server": "server", "Monitor": "monitor","Máy in laser": "lp", "Máy in kim": "dp", "Máy in màu": "cp"}
     branch_map = {"Miền Bắc": "MB", "Chi nhánh TPHCM": "HCM", "Nhà máy LA": "LA", "Polypack": "PP", "Đà Nẵng": "DN"}
     status_list = ["Trong kho", "Đang sử dụng", "Bảo trì", "Hỏng chờ thanh lý", "Đã thanh lý"]
 
