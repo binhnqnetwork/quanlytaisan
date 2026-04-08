@@ -24,7 +24,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 4. DESIGN SYSTEM (APPLE LUXURY)
+# 4. DESIGN SYSTEM (APPLE LUXURY UPGRADE)
 st.markdown("""
 <style>
     :root {
@@ -32,8 +32,7 @@ st.markdown("""
         --bg-card: #ffffff;
         --primary: #0071e3;
         --border: #e5e5e7;
-        --radius-xl: 24px;
-        --shadow-soft: 0 6px 20px rgba(0,0,0,0.04);
+        --radius-lg: 16px;
     }
 
     @import url('https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@400;600;700&display=swap');
@@ -45,26 +44,26 @@ st.markdown("""
 
     header {visibility: hidden;}
 
-    /* Card luôn hiển thị cho bộ lọc */
-    .filter-panel {
-        background: var(--bg-card);
-        border-radius: var(--radius-xl);
-        padding: 20px;
+    /* Sidebar Filter Box */
+    .sb-filter-container {
+        background-color: #fbfbfd;
         border: 1px solid var(--border);
-        box-shadow: var(--shadow-soft);
-        margin-bottom: 25px;
+        border-radius: var(--radius-lg);
+        padding: 15px;
+        margin-top: 20px;
     }
 
+    /* KPI Card Style */
     .kpi-card {
         background: white;
         border-radius: 20px;
         padding: 20px;
         border: 1px solid var(--border);
-        text-align: left;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
     }
-
-    /* Đè style cho sidebar menu */
-    .stRadio [data-testid="stWidgetLabel"] { display: none; }
+    
+    /* Căn chỉnh Sidebar Radio */
+    [data-testid="stSidebarNav"] {padding-top: 0rem;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -83,54 +82,79 @@ if "authenticated" not in st.session_state:
 if not st.session_state.authenticated:
     auth.login_page(supabase)
 else:
-    # --- SIDEBAR NAVIGATION ---
+    # --- SIDEBAR NAVIGATION & FILTERS ---
     with st.sidebar:
-        st.image("https://cdn-icons-png.flaticon.com/512/2592/2592261.png", width=80)
-        st.markdown("### IT Management")
-        menu = st.radio("Nav", ["Dashboard", "Inventory", "Servers", "Licenses", "Maintenance", "Vault", "AI Advisor"])
+        st.image("https://cdn-icons-png.flaticon.com/512/2592/2592261.png", width=70)
+        st.markdown("### **IT Enterprise**")
+        
+        # 6.1 Menu điều hướng
+        menu = st.radio(
+            "DANH MỤC QUẢN LÝ", 
+            ["📊 Dashboard", "💻 Inventory", "🖥️ Servers", "🌐 Licenses", "🛠️ Maintenance", "🔐 Vault", "✨ AI Advisor"]
+        )
+        
         st.markdown("---")
-        if st.button("🚪 Đăng xuất"):
+        
+        # 6.2 Nút Đăng xuất
+        if st.button("🚪 Đăng xuất", use_container_width=True):
             st.session_state.authenticated = False
             st.rerun()
 
-    # --- MAIN HEADER ---
-    col_t, col_s = st.columns([6, 2])
-    with col_t:
-        st.markdown(f"<h1 style='font-size: 3rem; font-weight: 700; margin-bottom:0;'>{menu}</h1>", unsafe_allow_html=True)
-        st.caption(f"Hệ thống quản trị IT 4 Oranges | {datetime.now().strftime('%d/%m/%Y')}")
+        # 6.3 BỘ LỌC NẰM DỌC (LUÔN HIỆN DƯỚI ĐĂNG XUẤT)
+        st.write("##")
+        st.markdown("🔍 **BỘ LỌC HỆ THỐNG**")
+        
+        # Bọc trong container để tách biệt visual
+        with st.container():
+            st.session_state.filter_branch = st.selectbox(
+                "📍 Chi nhánh", 
+                ["Tất cả", "Long An (LA)", "Hồ Chí Minh (HCM)", "Miền Bắc (MB)", "Đà Nẵng (DN)"]
+            )
+            
+            st.session_state.filter_status = st.selectbox(
+                "🔄 Trạng thái", 
+                ["Tất cả", "Đang sử dụng", "Trong kho", "Bảo trì", "Thanh lý"]
+            )
+            
+            st.session_state.search_query = st.text_input(
+                "⌨️ Tìm kiếm nhanh", 
+                placeholder="Asset Tag, Serial..."
+            )
+            
+            if st.button("Làm mới dữ liệu ↻", use_container_width=True, type="secondary"):
+                st.rerun()
 
-    # --- 7. KPI QUICK VIEW (LUÔN HIỆN Ở TOP) ---
-    k1, k2, k3, k4 = st.columns(4)
-    with k1: st.markdown("<div class='kpi-card'><small>TỔNG TÀI SẢN</small><h3>1,240</h3></div>", unsafe_allow_html=True)
-    with k2: st.markdown("<div class='kpi-card'><small>MÁY CHỦ</small><h3>32</h3></div>", unsafe_allow_html=True)
-    with k3: st.markdown("<div class='kpi-card'><small>LICENSE SẮP HẠN</small><h3 style='color:#ff9500'>12</h3></div>", unsafe_allow_html=True)
-    with k4: st.markdown("<div class='kpi-card'><small>TRẠNG THÁI</small><h3 style='color:#34c759'>Healthy</h3></div>", unsafe_allow_html=True)
+    # --- 7. MAIN CONTENT AREA ---
+    # Header Section
+    h_col1, h_col2 = st.columns([6, 2])
+    with h_col1:
+        st.markdown(f"<h1 style='font-size: 3rem; font-weight: 700; color: #1d1d1f; margin-bottom:0;'>{menu.split(' ')[1]}</h1>", unsafe_allow_html=True)
+        st.caption(f"Asset Management System | {datetime.now().strftime('%H:%M - %d/%m/%Y')}")
+    with h_col2:
+        st.markdown("<div style='text-align: right; padding-top: 20px;'><span style='color: #34c759;'>●</span> System Online</div>", unsafe_allow_html=True)
 
+    # --- 8. KPI ROW ---
     st.write("##")
+    k1, k2, k3, k4 = st.columns(4)
+    with k1: st.markdown("<div class='kpi-card'><small style='color:#86868b'>TỔNG TÀI SẢN</small><h2 style='margin:0'>1,240</h2></div>", unsafe_allow_html=True)
+    with k2: st.markdown("<div class='kpi-card'><small style='color:#86868b'>MÁY CHỦ</small><h2 style='margin:0'>32</h2></div>", unsafe_allow_html=True)
+    with k3: st.markdown("<div class='kpi-card'><small style='color:#86868b'>LICENSE HẾT HẠN</small><h2 style='margin:0; color:#ff3b30'>12</h2></div>", unsafe_allow_html=True)
+    with k4: st.markdown("<div class='kpi-card'><small style='color:#86868b'>KHU VỰC</small><h2 style='margin:0'>04</h2></div>", unsafe_allow_html=True)
 
-    # --- 8. GLOBAL FILTER PANEL (LUÔN HIỆN) ---
-    # Đây là nơi bộ lọc luôn xuất hiện, không cần nhấn mở
-    st.markdown("<div class='filter-panel'>", unsafe_allow_html=True)
-    f1, f2, f3, f4 = st.columns([2, 2, 2, 1])
-    with f1:
-        branch = st.selectbox("📍 Chi nhánh", ["Tất cả", "Long An", "HCM", "Hà Nội", "Đà Nẵng"], label_visibility="collapsed")
-    with f2:
-        status = st.selectbox("🔄 Trạng thái", ["Tất cả", "Đang sử dụng", "Trong kho", "Bảo trì"], label_visibility="collapsed")
-    with f3:
-        search = st.text_input("🔍 Tìm nhanh thiết bị...", placeholder="Nhập Asset Tag hoặc Serial...", label_visibility="collapsed")
-    with f4:
-        st.button("Tải lại ↻", use_container_width=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("---")
 
-    # --- 9. RENDER MODULES ---
+    # --- 9. DYNAMIC MODULE RENDERING ---
+    # Lấy tên menu sạch để render
+    module_name = menu.split(" ")[1]
+    
     with st.container():
-        if menu == "Dashboard": dashboard.render_dashboard(supabase)
-        elif menu == "Inventory": inventory.render_inventory(supabase)
-        elif menu == "Servers": servers.render_servers(supabase)
-        elif menu == "Licenses": licenses.render_licenses(supabase)
-        elif menu == "Maintenance": maintenance.render_maintenance(supabase)
-        elif menu == "Vault": vault.render_vault(supabase)
-        elif menu == "AI Advisor": ai_advisor.render_ai_advisor(supabase)
+        if module_name == "Dashboard": dashboard.render_dashboard(supabase)
+        elif module_name == "Inventory": inventory.render_inventory(supabase)
+        elif module_name == "Servers": servers.render_servers(supabase)
+        elif module_name == "Licenses": licenses.render_licenses(supabase)
+        elif module_name == "Maintenance": maintenance.render_maintenance(supabase)
+        elif module_name == "Vault": vault.render_vault(supabase)
+        elif module_name == "Advisor": ai_advisor.render_ai_advisor(supabase)
 
     # Footer
-    st.markdown("<div style='text-align: center; color: #86868b; padding: 40px;'>&copy; 2026 IT 4 Oranges</div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; color: #86868b; padding: 40px; font-size: 0.8rem;'>&copy; 2026 4 Oranges IT Solution</div>", unsafe_allow_html=True)
