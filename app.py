@@ -1,173 +1,139 @@
 import streamlit as st
-import sys
-import os
-from datetime import datetime
+import pandas as pd
+from datetime import datetime, date
 
-# 1. CẤU HÌNH ĐƯỜNG DẪN HỆ THỐNG
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.append(current_dir)
-
-# 2. IMPORT MODULES
-try:
-    from src.database.client import get_supabase
-    from src.modules import (
-        dashboard, inventory, servers, licenses, 
-        vault, auth, maintenance, ai_advisor 
-    )
-except ImportError as e:
-    st.error(f"❌ Lỗi cấu trúc thư mục: {e}")
-    st.stop()
-
-# 3. CẤU HÌNH TRANG & GIAO DIỆN "APPLE STYLE"
-st.set_page_config(
-    page_title="Asset Management | 4 Oranges",
-    page_icon="🍊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Nâng cấp giao diện bằng CSS nâng cao
-st.markdown("""
-    <style>
-    /* Tổng thể font và nền */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-    html, body, [class*="st-at"] { font-family: 'Inter', sans-serif; }
-    
-    .main { background-color: #f5f7f9; }
-
-    /* Nâng cấp Sidebar */
-    [data-testid="stSidebar"] {
-        background-color: #ffffff;
-        border-right: 1px solid #e6e9ef;
-    }
-    
-    /* Làm đẹp các Tab */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 10px;
-        background-color: transparent;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        height: 45px;
-        background-color: #ffffff;
-        border-radius: 10px !important;
-        border: 1px solid #e6e9ef !important;
-        padding: 0px 20px !important;
-        font-weight: 600;
-        color: #4b5563;
-        transition: all 0.3s ease;
-    }
-
-    .stTabs [data-baseweb="tab"]:hover {
-        border-color: #ff8c00 !important;
-        color: #ff8c00;
-    }
-
-    .stTabs [aria-selected="true"] {
-        background-color: #ff8c00 !important;
-        color: white !important;
-        border: none !important;
-        box-shadow: 0 4px 12px rgba(255, 140, 0, 0.3);
-    }
-
-    /* Hiệu ứng đặc biệt cho Tab AI */
-    .stTabs [data-baseweb="tab"]:last-child {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        color: white !important;
-    }
-
-    /* Metric Card */
-    div[data-testid="stMetric"] {
-        background-color: white;
-        padding: 15px;
-        border-radius: 15px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-        border: 1px solid #e6e9ef;
-    }
-    </style>
+def render_licenses(supabase):
+    # --- 1. GIAO DIỆN CHUẨN APPLE (UI/UX) ---
+    st.markdown("""
+        <style>
+        .main-header { font-weight: 700; color: #1d1d1f; margin-bottom: 20px; }
+        .stMetric { background: white; padding: 20px; border-radius: 18px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #e5e5e7; }
+        [data-testid="stExpander"] { border-radius: 12px; border: 1px solid #d2d2d7; background: white; }
+        </style>
     """, unsafe_allow_html=True)
 
-# 4. KHỞI TẠO KẾT NỐI
-@st.cache_resource
-def init_connection():
-    try:
-        return get_supabase()
-    except Exception:
-        st.error("⚠️ Không thể kết nối tới cơ sở dữ liệu Supabase.")
-        st.stop()
+    # --- 2. TRUY VẤN DỮ LIỆU TẬP TRUNG ---
+    with st.spinner("Đang đồng bộ kho bản quyền..."):
+        res = supabase.table("licenses").select("*").order("name").execute()
+        df_raw = pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
-supabase = init_connection()
-
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-
-# 5. LOGIC HIỂN THỊ CHÍNH
-if not st.session_state.authenticated:
-    auth.login_page(supabase)
-else:
-    # Sidebar: Glassmorphism Design
-    with st.sidebar:
-        st.markdown("<h2 style='text-align: center;'>🍊</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; font-weight: 700; font-size: 1.2rem;'>4 ORANGES IT</p>", unsafe_allow_html=True)
-        st.markdown("---")
-        
-        st.caption("Tài khoản đang đăng nhập:")
-        st.markdown(f"**{st.session_state.get('user_email', 'Admin')}**")
-        
-        st.markdown("---")
-        if st.button("🚪 Đăng xuất hệ thống", use_container_width=True):
-            st.session_state.authenticated = False
-            st.rerun()
-            
-        st.markdown("<br>"*10, unsafe_allow_html=True)
-        st.divider()
-        st.caption("v2.5.0-PRO Early Access")
-
-    # Header: Dashboard Style
-    head_col1, head_col2 = st.columns([2, 1])
-    with head_col1:
-        st.title("🍊 IT Asset Control Center")
-        st.markdown(f"Chào buổi sáng, hệ thống đang vận hành với **100% hiệu năng**.")
+    # --- 3. TIÊU ĐỀ ---
+    st.markdown('<h1 class="main-header">🌐 Quản lý Bản quyền Enterprise</h1>', unsafe_allow_html=True)
     
-    with head_col2:
-        # Đồng hồ và ngày tháng nhỏ gọn bên góc
-        st.markdown(f"""
-            <div style="text-align: right; padding-top: 20px; color: #6b7280;">
-                📅 {datetime.now().strftime('%A, %d/%m/%Y')}<br>
-                🕒 Last sync: {datetime.now().strftime('%H:%M:%S')}
-            </div>
-        """, unsafe_allow_html=True)
+    if not df_raw.empty:
+        # --- 4. XỬ LÝ DỮ LIỆU (FIX LỖI TẠI ĐÂY) ---
+        df = df_raw.copy()
+        df['total_quantity'] = pd.to_numeric(df['total_quantity'], errors='coerce').fillna(0).astype(int)
+        df['used_quantity'] = pd.to_numeric(df['used_quantity'], errors='coerce').fillna(0).astype(int)
+        df['remaining'] = df['total_quantity'] - df['used_quantity']
+        
+        # BƯỚC QUAN TRỌNG: Chuyển đổi chuỗi ngày từ DB sang kiểu date của Python để tương thích với DateColumn
+        df['expiry_date'] = pd.to_datetime(df['expiry_date'], errors='coerce').dt.date
+        
+        today = date.today()
+        # Tính toán ngày chênh lệch để phân loại trạng thái
+        df['days_diff'] = df['expiry_date'].apply(lambda x: (x - today).days if pd.notnull(x) else 999)
+        
+        # Phân loại rủi ro cho Metrics
+        critical_df = df[(df['remaining'] < 0) | (df['days_diff'] <= 7)]
+        warning_df = df[(df['remaining'] == 0) | ((df['days_diff'] > 7) & (df['days_diff'] <= 30))]
 
-    # --- HỆ THỐNG TABS ---
-    tabs = st.tabs([
-        "📊 Dashboard", 
-        "💻 Inventory", 
-        "🖥️ Servers", 
-        "🌐 Licenses",
-        "🛠️ Maintenance", 
-        "🔐 Vault",
-        "🤖 AI ADVISOR"
-    ])
+        # --- 5. HIỂN THỊ KPI ---
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Tổng phần mềm", len(df))
+        col2.metric("Tổng bản quyền", df['total_quantity'].sum())
+        col3.metric("⚠️ Rủi ro/Hết hạn", len(critical_df) + len(warning_df), 
+                    delta=f"{len(critical_df)} Nghiêm trọng" if len(critical_df) > 0 else None,
+                    delta_color="inverse")
+        
+        usage_rate = (df['used_quantity'].sum() / df['total_quantity'].sum() * 100) if df['total_quantity'].sum() > 0 else 0
+        col4.metric("Tỷ lệ lấp đầy", f"{usage_rate:.1f}%")
 
-    # Mapping các module để tránh lặp code (Pro-tip)
-    modules = {
-        0: dashboard.render_dashboard,
-        1: inventory.render_inventory,
-        2: servers.render_servers,
-        3: licenses.render_licenses,
-        4: maintenance.render_maintenance,
-        5: vault.render_vault,
-        6: ai_advisor.render_ai_advisor
-    }
+        # --- 6. DANH SÁCH CHI TIẾT (SMART TABLE) ---
+        st.markdown("### 📋 Trạng thái kho License")
+        
+        def get_status(row):
+            if pd.isnull(row['expiry_date']): return "⚪ Không xác định"
+            if row['days_diff'] < 0: return "❌ Đã hết hạn"
+            if row['days_diff'] <= 30: return "⚠️ Sắp hết hạn"
+            if row['remaining'] < 0: return "❗ Dùng quá số lượng"
+            return "✅ Ổn định"
 
-    for idx, render_func in modules.items():
-        with tabs[idx]:
-            try:
-                render_func(supabase)
-            except Exception as e:
-                st.error(f"❌ Error in module {idx}: {str(e)}")
+        df['Trạng thái'] = df.apply(get_status, axis=1)
 
-# Footer nhỏ gọn
-st.markdown("---")
-st.caption("© 2026 IT Department - 4 Oranges Co., Ltd. Confidential.")
+        # Sử dụng data_editor với cấu hình cột đã fix
+        st.data_editor(
+            df[['name', 'total_quantity', 'used_quantity', 'remaining', 'expiry_date', 'Trạng thái']],
+            use_container_width=True,
+            hide_index=True,
+            disabled=True, 
+            column_config={
+                "name": st.column_config.TextColumn("🏷️ Tên phần mềm"),
+                "total_quantity": st.column_config.NumberColumn("🔢 Tổng"),
+                "used_quantity": st.column_config.NumberColumn("📤 Đã cấp"),
+                "remaining": st.column_config.ProgressColumn(
+                    "🟢 Khả dụng", 
+                    min_value=0, 
+                    max_value=int(df['total_quantity'].max()) if not df.empty else 100,
+                    format="%d"
+                ),
+                # Cột này bây giờ sẽ hoạt động vì dữ liệu đã là kiểu date
+                "expiry_date": st.column_config.DateColumn("📅 Hạn dùng", format="DD/MM/YYYY"),
+                "Trạng thái": st.column_config.TextColumn("💡 Trạng thái")
+            }
+        )
+
+        st.markdown("---")
+
+        # --- 7. CÁC THAO TÁC QUẢN TRỊ (Giữ nguyên logic cũ của bạn) ---
+        c1, c2 = st.columns(2)
+        with c1:
+            with st.expander("🔄 Thu hồi License"):
+                res_assets = supabase.table("assets").select("id, asset_tag, software_list").execute()
+                assets_with_sw = [a for a in res_assets.data if a.get('software_list')]
+                if assets_with_sw:
+                    with st.form("form_harvest"):
+                        selected_asset = st.selectbox("Chọn thiết bị", assets_with_sw, 
+                                                     format_func=lambda x: f"{x['asset_tag']} ({len(x['software_list'])} SW)")
+                        sw_to_remove = st.multiselect("Phần mềm thu hồi", selected_asset['software_list'])
+                        if st.form_submit_button("Xác nhận thu hồi", type="primary"):
+                            if sw_to_remove:
+                                # Logic update tại đây...
+                                new_sw_list = [s for s in selected_asset['software_list'] if s not in sw_to_remove]
+                                supabase.table("assets").update({"software_list": new_sw_list}).eq("id", selected_asset['id']).execute()
+                                for sw in sw_to_remove:
+                                    lic_info = df[df['name'] == sw]
+                                    if not lic_info.empty:
+                                        new_used = max(0, int(lic_info.iloc[0]['used_quantity']) - 1)
+                                        supabase.table("licenses").update({"used_quantity": new_used}).eq("name", sw).execute()
+                                st.success("Đã thu hồi thành công!")
+                                st.rerun()
+                else:
+                    st.info("Không có thiết bị giữ license.")
+
+        with c2:
+            with st.expander("🗑️ Xóa phần mềm"):
+                del_target = st.selectbox("Chọn phần mềm", ["-- Chọn --"] + df['name'].tolist())
+                if st.button("Xóa vĩnh viễn", type="secondary", use_container_width=True):
+                    if del_target != "-- Chọn --":
+                        supabase.table("licenses").delete().eq("name", del_target).execute()
+                        st.rerun()
+
+    # --- 8. THÊM MỚI (UPSERT) ---
+    with st.expander("➕ Đăng ký / Gia hạn bản quyền"):
+        with st.form("form_add_sw"):
+            col_a, col_b, col_c = st.columns([2, 1, 1])
+            name_in = col_a.text_input("Tên phần mềm")
+            qty_in = col_b.number_input("Tổng số lượng", min_value=1, step=1)
+            expiry_in = col_c.date_input("Ngày hết hạn")
+            if st.form_submit_button("Lưu thông tin"):
+                if name_in:
+                    supabase.table("licenses").upsert({
+                        "name": name_in.strip(),
+                        "total_quantity": qty_in,
+                        "expiry_date": str(expiry_in)
+                    }, on_conflict="name").execute()
+                    st.rerun()
+
+    if df_raw.empty:
+        st.info("📭 Kho bản quyền đang trống.")
