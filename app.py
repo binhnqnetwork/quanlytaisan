@@ -24,54 +24,116 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 4. DESIGN SYSTEM (APPLE LUXURY UPGRADE)
+# 4. NÂNG CẤP GIAO DIỆN APPLE DESIGN SYSTEM (CSS LUXURY)
 st.markdown("""
-<style>
-    :root {
-        --bg-main: #f5f5f7;
-        --bg-card: #ffffff;
-        --primary: #0071e3;
-        --border: #e5e5e7;
-        --radius-lg: 16px;
-    }
-
-    @import url('https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@400;600;700&display=swap');
+    <style>
+    /* Nhúng Font San Francisco (Apple) */
+    @import url('https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@400;500;600;700&display=swap');
     
     html, body, [class*="css"] {
-        font-family: 'SF Pro Display', -apple-system, sans-serif !important;
-        background-color: var(--bg-main) !important;
+        font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif !important;
+        background-color: #f5f5f7 !important;
     }
 
+    /* Ẩn Header mặc định của Streamlit để tạo cảm giác App Native */
     header {visibility: hidden;}
+    .main .block-container {padding-top: 2rem; padding-bottom: 2rem;}
 
-    /* Sidebar Filter Box */
-    .sb-filter-container {
-        background-color: #fbfbfd;
-        border: 1px solid var(--border);
-        border-radius: var(--radius-lg);
-        padding: 15px;
-        margin-top: 20px;
+    /* Hiệu ứng Tiêu đề chính cực lớn */
+    .main-title {
+        font-size: 3.5rem !important;
+        font-weight: 700 !important;
+        color: #1d1d1f;
+        letter-spacing: -1.2px;
+        margin-bottom: 0px;
     }
 
-    /* KPI Card Style */
-    .kpi-card {
-        background: white;
-        border-radius: 20px;
-        padding: 20px;
-        border: 1px solid var(--border);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    /* Tab Navigation chuẩn iPadOS */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 12px;
+        background-color: rgba(232, 232, 237, 0.7);
+        padding: 10px;
+        border-radius: 24px;
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255,255,255,0.3);
     }
     
-    /* Căn chỉnh Sidebar Radio */
-    [data-testid="stSidebarNav"] {padding-top: 0rem;}
-</style>
-""", unsafe_allow_html=True)
+    .stTabs [data-baseweb="tab"] {
+        height: 54px !important;
+        border: none !important;
+        background-color: transparent !important;
+        border-radius: 16px !important;
+        padding: 0px 24px !important;
+        color: #424245 !important;
+        font-weight: 600 !important;
+        font-size: 1rem !important;
+        transition: all 0.2s ease-in-out;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background-color: #ffffff !important;
+        color: #0071e3 !important;
+        box-shadow: 0 10px 20px rgba(0,0,0,0.06) !important;
+        transform: translateY(-1px);
+    }
+
+    /* Thẻ chỉ số (Metric Cards) */
+    div[data-testid="stMetric"] {
+        background: rgba(255, 255, 255, 0.8);
+        border: 1px solid rgba(210, 210, 215, 0.4);
+        border-radius: 28px !important;
+        padding: 24px !important;
+        box-shadow: 0 8px 30px rgba(0,0,0,0.02);
+        backdrop-filter: blur(10px);
+    }
+    div[data-testid="stMetricValue"] {
+        font-size: 2.8rem !important;
+        font-weight: 700 !important;
+        color: #1d1d1f !important;
+    }
+
+    /* Nút bấm Apple Blue (Gradient & Shadow) */
+    .stButton>button {
+        width: 100%;
+        height: 56px !important;
+        border-radius: 18px !important;
+        border: none !important;
+        background: linear-gradient(135deg, #0071e3, #0585ff) !important;
+        color: white !important;
+        font-size: 1.1rem !important;
+        font-weight: 600 !important;
+        box-shadow: 0 12px 24px rgba(0,113,227,0.25) !important;
+        transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1) !important;
+    }
+    .stButton>button:hover {
+        transform: translateY(-3px) scale(1.02);
+        box-shadow: 0 15px 30px rgba(0,113,227,0.35) !important;
+    }
+
+    /* Sidebar thiết kế sạch sẽ */
+    [data-testid="stSidebar"] {
+        background-color: #ffffff !important;
+        border-right: 1px solid #d2d2d7;
+    }
+
+    /* Group Container cho các Module */
+    .module-card {
+        background: #ffffff;
+        border-radius: 30px;
+        padding: 30px;
+        border: 1px solid #e5e5e7;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 # 5. KHỞI TẠO KẾT NỐI
 @st.cache_resource
 def init_connection():
-    try: return get_supabase()
-    except: st.stop()
+    try:
+        return get_supabase()
+    except Exception:
+        st.error("⚠️ Không thể kết nối tới cơ sở dữ liệu Supabase.")
+        st.stop()
 
 supabase = init_connection()
 
@@ -82,79 +144,66 @@ if "authenticated" not in st.session_state:
 if not st.session_state.authenticated:
     auth.login_page(supabase)
 else:
-    # --- SIDEBAR NAVIGATION & FILTERS ---
+    # --- SIDEBAR NAV ---
     with st.sidebar:
         st.image("https://cdn-icons-png.flaticon.com/512/2592/2592261.png", width=70)
-        st.markdown("### **IT Enterprise**")
-        
-        # 6.1 Menu điều hướng
-        menu = st.radio(
-            "DANH MỤC QUẢN LÝ", 
-            ["📊 Dashboard", "💻 Inventory", "🖥️ Servers", "🌐 Licenses", "🛠️ Maintenance", "🔐 Vault", "✨ AI Advisor"]
-        )
-        
+        st.markdown(f"## **Admin Panel**")
+        st.caption(f"📍 {st.session_state.get('user_email', 'it-admin@4oranges.com')}")
         st.markdown("---")
         
-        # 6.2 Nút Đăng xuất
-        if st.button("🚪 Đăng xuất", use_container_width=True):
+        # Logout button to hơn, bắt mắt hơn
+        if st.button("🚪 Đăng xuất tài khoản"):
             st.session_state.authenticated = False
             st.rerun()
+            
+        st.markdown("<br>"*10, unsafe_allow_html=True)
+        st.info("🟢 **Hệ thống:** Vận hành ổn định")
 
-        # 6.3 BỘ LỌC NẰM DỌC (LUÔN HIỆN DƯỚI ĐĂNG XUẤT)
-        st.write("##")
-        st.markdown("🔍 **BỘ LỌC HỆ THỐNG**")
-        
-        # Bọc trong container để tách biệt visual
-        with st.container():
-            st.session_state.filter_branch = st.selectbox(
-                "📍 Chi nhánh", 
-                ["Tất cả", "Long An (LA)", "Hồ Chí Minh (HCM)", "Miền Bắc (MB)", "Đà Nẵng (DN)"]
-            )
-            
-            st.session_state.filter_status = st.selectbox(
-                "🔄 Trạng thái", 
-                ["Tất cả", "Đang sử dụng", "Trong kho", "Bảo trì", "Thanh lý"]
-            )
-            
-            st.session_state.search_query = st.text_input(
-                "⌨️ Tìm kiếm nhanh", 
-                placeholder="Asset Tag, Serial..."
-            )
-            
-            if st.button("Làm mới dữ liệu ↻", use_container_width=True, type="secondary"):
-                st.rerun()
-
-    # --- 7. MAIN CONTENT AREA ---
+    # --- MAIN CONTENT AREA ---
     # Header Section
-    h_col1, h_col2 = st.columns([6, 2])
-    with h_col1:
-        st.markdown(f"<h1 style='font-size: 3rem; font-weight: 700; color: #1d1d1f; margin-bottom:0;'>{menu.split(' ')[1]}</h1>", unsafe_allow_html=True)
-        st.caption(f"Asset Management System | {datetime.now().strftime('%H:%M - %d/%m/%Y')}")
-    with h_col2:
-        st.markdown("<div style='text-align: right; padding-top: 20px;'><span style='color: #34c759;'>●</span> System Online</div>", unsafe_allow_html=True)
-
-    # --- 8. KPI ROW ---
+    st.markdown("<h1 class='main-title'>Asset Portfolio</h1>", unsafe_allow_html=True)
+    st.caption(f"Hệ thống quản trị hạ tầng IT 4 Oranges | {datetime.now().strftime('%A, %d %B %Y')}")
     st.write("##")
-    k1, k2, k3, k4 = st.columns(4)
-    with k1: st.markdown("<div class='kpi-card'><small style='color:#86868b'>TỔNG TÀI SẢN</small><h2 style='margin:0'>1,240</h2></div>", unsafe_allow_html=True)
-    with k2: st.markdown("<div class='kpi-card'><small style='color:#86868b'>MÁY CHỦ</small><h2 style='margin:0'>32</h2></div>", unsafe_allow_html=True)
-    with k3: st.markdown("<div class='kpi-card'><small style='color:#86868b'>LICENSE HẾT HẠN</small><h2 style='margin:0; color:#ff3b30'>12</h2></div>", unsafe_allow_html=True)
-    with k4: st.markdown("<div class='kpi-card'><small style='color:#86868b'>KHU VỰC</small><h2 style='margin:0'>04</h2></div>", unsafe_allow_html=True)
 
-    st.markdown("---")
+    # --- TẠO TABS ĐIỀU HƯỚNG ---
+    tabs = st.tabs([
+        "📊 Dashboard", 
+        "💻 Inventory", 
+        "🖥️ Servers", 
+        "🌐 Licenses",
+        "🛠️ Maintenance",
+        "🔐 Vault",
+        "✨ AI Advisor"
+    ])
 
-    # --- 9. DYNAMIC MODULE RENDERING ---
-    # Lấy tên menu sạch để render
-    module_name = menu.split(" ")[1]
-    
-    with st.container():
-        if module_name == "Dashboard": dashboard.render_dashboard(supabase)
-        elif module_name == "Inventory": inventory.render_inventory(supabase)
-        elif module_name == "Servers": servers.render_servers(supabase)
-        elif module_name == "Licenses": licenses.render_licenses(supabase)
-        elif module_name == "Maintenance": maintenance.render_maintenance(supabase)
-        elif module_name == "Vault": vault.render_vault(supabase)
-        elif module_name == "Advisor": ai_advisor.render_ai_advisor(supabase)
+    # --- RENDER MODULES ---
+    with tabs[0]:
+        dashboard.render_dashboard(supabase)
 
-    # Footer
-    st.markdown("<div style='text-align: center; color: #86868b; padding: 40px; font-size: 0.8rem;'>&copy; 2026 4 Oranges IT Solution</div>", unsafe_allow_html=True)
+    with tabs[1]:
+        inventory.render_inventory(supabase)
+
+    with tabs[2]:
+        servers.render_servers(supabase)
+
+    with tabs[3]:
+        licenses.render_licenses(supabase)
+
+    with tabs[4]:
+        maintenance.render_maintenance(supabase)
+
+    with tabs[5]:
+        vault.render_vault(supabase)
+
+    with tabs[6]:
+        try:
+            ai_advisor.render_ai_advisor(supabase)
+        except Exception as e:
+            st.error(f"❌ AI Module Error: {e}")
+
+    # Footer nhỏ tinh tế
+    st.markdown("""
+        <div style='text-align: center; color: #86868b; padding: 40px; font-size: 0.8rem;'>
+            &copy; 2026 4 Oranges IT Solution. Designed for High Performance.
+        </div>
+    """, unsafe_allow_html=True)
