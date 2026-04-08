@@ -1,96 +1,113 @@
 import streamlit as st
-import sys
-import os
-from datetime import datetime
+import pandas as pd
+import numpy as np
+import plotly.express as px
+from . import ai_engine
 
-# Cấu hình đường dẫn
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.append(current_dir)
-
-# Import các module (Đảm bảo folder src/modules tồn tại)
-try:
-    from src.database.client import get_supabase
-    from src.modules import dashboard, inventory, servers, licenses, vault, auth, maintenance, ai_advisor
-except ImportError as e:
-    st.error(f"❌ Lỗi cấu trúc thư mục: {e}")
-    st.stop()
-
-# CẤU HÌNH TRANG - ÉP BUNG SIDEBAR
-st.set_page_config(
-    page_title="Asset Portfolio | 4 Oranges",
-    page_icon="🍊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# CSS APPLE SYSTEM & SIDEBAR LOCK
-st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@400;500;600;700&display=swap');
-    html, body, [class*="css"] {
-        font-family: 'SF Pro Display', -apple-system, sans-serif !important;
-        background-color: #f5f5f7 !important;
-    }
-
-    /* KHÓA CỨNG SIDEBAR - KHÔNG CHO ẨN */
-    [data-testid="collapsedControl"], [data-testid="stSidebarCollapseButton"] {
-        display: none !important;
-    }
-    
-    header {visibility: hidden;}
-
-    /* Sidebar Style */
-    [data-testid="stSidebar"] {
-        background-color: #ffffff !important;
-        border-right: 1px solid #d2d2d7;
-        padding-top: 20px;
-    }
-
-    /* Tab Style */
-    .stTabs [data-baseweb="tab-list"] {
-        background-color: rgba(232, 232, 237, 0.7);
-        padding: 8px;
-        border-radius: 16px;
-    }
-    </style>
+def render_dashboard(supabase, key_prefix="master_fix_v4"):
+    st.markdown("""
+        <style>
+        .main-card {
+            background: white; border-radius: 16px; padding: 20px;
+            border: 1px solid #e5e5e7; box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+            margin-bottom: 20px;
+            min-height: 120px;
+        }
+        </style>
     """, unsafe_allow_html=True)
 
-supabase = get_supabase()
+    try:
+        # 1. TRUY XUẤT & TIỀN XỬ LÝ
+        res_assets = supabase.table("assets").select("*").execute()
+        res_staff = supabase.table("staff").select("*").execute()
+        df_assets = pd.DataFrame(res_assets.data)
+        df_staff = pd.DataFrame(res_staff.data)
 
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
+        for df, col in [(df_assets, 'assigned_to_code'), (df_staff, 'employee_code')]:
+            df[col] = df[col].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+            df[col] = df[col].replace(['nan', 'None', 'null', '<NA>', ''], np.nan)
 
-if not st.session_state.authenticated:
-    auth.login_page(supabase)
-else:
-    # --- SIDEBAR FILTERS (LUÔN HIỆN) ---
-    with st.sidebar:
-        st.image("https://cdn-icons-png.flaticon.com/512/2592/2592261.png", width=60)
-        st.markdown("### **IT Management**")
+        # 2. GỌI AI ENGINE
+        metrics, df_ai, _, _, _, _ = ai_engine.calculate_ai_metrics(
+            df_assets, None, None, df_staff
+        )
+
+        # ĐỒNG BỘ TÊN CỘT
+        rename_map = {
+            'branch': 'Chi nhánh',
+            'department': 'Phòng ban',
+            'full_name': 'Nhân viên sở hữu',
+            'asset_tag': 'Mã máy',
+            'category': 'Loại'
+        }
+        df_ai = df_ai.rename(columns=rename_map)
+
+        # 3. LOGIC LỌC (Sử dụng session_state từ app.py)
+        df_display = df_ai.copy()
         
-        if st.button("🚪 Đăng xuất"):
-            st.session_state.authenticated = False
-            st.rerun()
+        # Lọc theo Chi nhánh từ Sidebar của app.py
+        if "f_branch" in st.session_state and st.session_state.f_branch != "Tất cả chi nhánh":
+            df_display = df_display[df_display['Chi nhánh'] == st.session_state.f_branch]
         
+        # Lọc theo Tìm kiếm nhanh từ Sidebar của app.py
+        if "f_search" in st.session_state and st.session_state.f_search:
+            search_q = st.session_state.f_search
+            df_display = df_display[
+                df_display['Mã máy'].astype(str).str.contains(search_q, case=False, na=False) |
+                df_display['Nhân viên sở hữu'].astype(str).str.contains(search_q, case=False, na=False)
+            ]
+
+        # 4. HIỂN THỊ KPI (ĐÃ SỬA CHUẨN)
+        m1, m2, m3, m4 = st.columns(4)
+        
+        with m1:
+            st.markdown('<div class="main-card">', unsafe_allow_html=True)
+            total_m = len(df_display)
+            st.metric("Tổng thiết bị", f"{total_m} máy")
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        with m2:
+            st.markdown('<div class="main-card">', unsafe_allow_html=True)
+            # Nguy cấp: Lọc theo risk_level trong dữ liệu hiện tại
+            crit_val = len(df_display[df_display['risk_level'].isin(['Cao', 'Rất cao', 'Critical'])]) if 'risk_level' in df_display.columns else 0
+            st.metric("🚨 Nguy cấp", crit_val)
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        with m3:
+            st.markdown('<div class="main-card">', unsafe_allow_html=True)
+            # --- FIX BẢN QUYỀN: Đếm trực tiếp từ cột Loại/category ---
+            target_col = 'Loại' if 'Loại' in df_display.columns else 'category'
+            if target_col in df_display.columns:
+                lic_val = len(df_display[df_display[target_col].str.contains('License|Bản quyền|Software|Key', case=False, na=False)])
+            else:
+                lic_val = metrics.get("license_alerts", 0)
+            st.metric("🔑 Bản quyền", f"{lic_val} Key")
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        with m4:
+            st.markdown('<div class="main-card">', unsafe_allow_html=True)
+            st.metric("⚙️ MTTR", f"{metrics.get('mttr', 0)}h")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # 5. BIỂU ĐỒ & BẢNG
+        c_l, c_r = st.columns([1, 1])
+        with c_l:
+            if 'Chi nhánh' in df_display.columns and not df_display.empty:
+                fig = px.pie(df_display, names='Chi nhánh', hole=0.5, height=250, title="Tỷ lệ vùng miền")
+                fig.update_layout(margin=dict(t=40, b=0, l=0, r=0), showlegend=True)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Không có dữ liệu biểu đồ")
+        
+        with c_r:
+            # Có thể thêm biểu đồ cột hoặc thông tin phụ ở đây
+            st.write("")
+
         st.markdown("---")
-        st.markdown("🔍 **BỘ LỌC CHUNG**")
-        
-        # Lưu vào session_state để dùng cho tất cả các tabs
-        st.session_state.global_branch = st.selectbox("📍 Chi nhánh", ["Tất cả", "Long An", "HCM", "Đà Nẵng", "Hà Nội"])
-        st.session_state.global_search = st.text_input("⌨️ Tìm nhanh", placeholder="Mã máy hoặc tên...")
-        
-        st.write("<br>"*5, unsafe_allow_html=True)
-        st.info("🟢 Hệ thống trực tuyến")
+        st.markdown("### 📋 Danh sách chi tiết")
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
 
-    # --- MAIN CONTENT ---
-    st.markdown(f"<h1 style='font-size: 2.8rem; font-weight: 700;'>Console</h1>", unsafe_allow_html=True)
-    st.caption(f"Asset Management | {datetime.now().strftime('%d/%m/%Y')}")
+    except Exception as e:
+        st.error(f"❌ Lỗi Dashboard: {str(e)}")
 
-    tabs = st.tabs(["📊 Dashboard", "💻 Inventory", "🖥️ Servers", "🌐 Licenses", "🛠️ Maintenance", "🔐 Vault", "✨ AI Advisor"])
-
-    with tabs[0]:
-        dashboard.render_dashboard(supabase)
-    with tabs[1]:
-        inventory.render_inventory(supabase)
-    # ... render các tab khác tương tự
+# LƯU Ý: KHÔNG GỌI HÀM render_dashboard(supabase) Ở ĐÂY ĐỂ TRÁNH LỖI ĐỆ QUY
